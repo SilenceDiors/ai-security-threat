@@ -100,10 +100,10 @@ Base = declarative_base()
 class AgentSession(Base):
     __tablename__ = 'agent_sessions'
     
-    # ❌ 错误：使用自增ID
+    # 错误做法：使用自增ID
     # id = Column(Integer, primary_key=True, autoincrement=True)
     
-    # ✅ 正确：使用UUID
+    # 正确做法：使用UUID
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     
     user_id = Column(String(36), nullable=False, index=True)
@@ -172,13 +172,13 @@ def get_agent_history(resource_id):
     
     history = db.query(AgentSession).filter_by(id=resource_id).first()
     
-    # ❌ 错误：暴露资源存在性
+    # 错误做法：暴露资源存在性
     if not history:
         abort(404, "Resource not found")
     if history.user_id != current_user.id:
         abort(403, "Forbidden")  # 攻击者知道资源存在但无权访问
     
-    # ✅ 正确：统一返回404
+    # 正确做法：统一返回404
     if not history or history.user_id != current_user.id:
         abort(404, "Resource not found")  # 不暴露资源是否存在
     

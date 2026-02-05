@@ -63,12 +63,12 @@ shell_exec()
 禁用exec/eval/shell等危险函数：
 
 ```python
-# ❌ 危险：直接执行用户输入
+# 危险做法：直接执行用户输入
 def process_input(user_code):
     eval(user_code)  # 禁止！
     exec(user_code)  # 禁止！
 
-# ✅ 安全：不执行用户代码
+# 安全做法：不执行用户代码
 def process_input(user_input):
     # 使用安全的解析和验证
     validated_data = json.loads(user_input)
@@ -79,11 +79,11 @@ def process_input(user_input):
 如需命令执行，使用固定命令白名单+参数校验：
 
 ```python
-# ❌ 危险
+# 危险做法
 def run_command(cmd):
     os.system(cmd)  # 可注入！
 
-# ✅ 安全
+# 安全做法
 ALLOWED_COMMANDS = {
     "list": ["ls", "-la"],
     "status": ["systemctl", "status"],
@@ -143,27 +143,27 @@ def execute_in_container(code):
 使用公司提供的安全序列化SDK：
 
 ```python
-# ❌ 危险：pickle反序列化
+# 危险做法：pickle反序列化
 import pickle
 data = pickle.loads(user_input)  # 可执行任意代码！
 
-# ✅ 安全：使用JSON
+# 安全做法：使用JSON
 import json
 data = json.loads(user_input)  # 只解析数据
 
-# ✅ 安全：使用公司安全SDK
+# 安全做法：使用公司安全SDK
 from company_security_sdk import safe_deserialize
 data = safe_deserialize(user_input, schema=UserInputSchema)
 ```
 
 #### 3.2.5 模板引擎安全配置
 ```python
-# ❌ 危险：允许执行代码的模板
+# 危险做法：允许执行代码的模板
 from jinja2 import Template
 template = Template(user_input)
 result = template.render()  # SSTI风险！
 
-# ✅ 安全：使用沙箱环境
+# 安全做法：使用沙箱环境
 from jinja2.sandbox import SandboxedEnvironment
 env = SandboxedEnvironment()
 template = env.from_string(user_input)
