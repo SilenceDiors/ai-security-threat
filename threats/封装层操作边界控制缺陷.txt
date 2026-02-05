@@ -1,27 +1,20 @@
 # 封装层操作边界控制缺陷
-
 **威胁类别**：智能体层 - 操作执行边界控制缺陷  
 **风险等级**：P0（严重）
-
 ## 1. 漏洞原理
-
 ### 1.1 Tools控制缺失
 封装层代码（自实现、MCP等）的tools控制缺失，可能导致严重的安全风险。
-
 ### 1.2 攻击面
 - **客户端攻击**：对client端（封装层）进行恶意代码执行
 - **服务端攻击**：对工程服务侧进行恶意操作执行
 - **业务逻辑攻击**：执行敏感业务操作（如下单、转账等）
-
 ### 1.3 危险Tools类型
 - **命令执行**：shell、exec、system等
 - **文件操作**：任意文件读写、删除
 - **网络请求**：SSRF、内网扫描
 - **数据库操作**：直接执行SQL
 - **敏感业务**：支付、转账、删除数据等
-
 ## 2. 漏洞危害
-
 - **远程代码执行（RCE）**：攻击者完全控制系统
 - **数据泄露**：读取敏感文件和数据
 - **数据破坏**：删除或篡改重要数据
@@ -29,20 +22,15 @@
 - **横向移动**：攻击内网其他系统
 - **权限提升**：获取更高权限
 - **业务中断**：破坏关键业务流程
-
 ## 3. 修复方式
-
 ### 3.1 开发原则
 - 最小权限原则：仅开启必要的tools
 - 严格边界控制：限制tools的操作范围
 - 输入验证：验证和净化tools的输入参数
 - 审批机制：高风险操作需人工确认
-
 ### 3.2 修复建议
-
 #### 3.2.1 Tools白名单机制
 严格检查封装层tools的边界控制，尽量不要开启命令执行、敏感操作等高权限tools。
-
 **安全Tools示例：**
 ```python
 # 安全的Tools配置
@@ -52,7 +40,6 @@ ALLOWED_TOOLS = {
     "send_email": {"risk": "medium", "approval": True},
     "transfer_money": {"risk": "high", "approval": True},
 }
-
 # 禁止的危险Tools
 FORBIDDEN_TOOLS = [
     "execute_command",  # 命令执行
@@ -62,7 +49,6 @@ FORBIDDEN_TOOLS = [
     "system_call",     # 系统调用
 ]
 ```
-
 #### 3.2.2 参数验证和限制
 ```python
 def execute_tool(tool_name, params):
@@ -93,14 +79,12 @@ def execute_tool(tool_name, params):
     # 6. 执行Tools
     return execute_safe_tool(tool_name, validated_params)
 ```
-
 #### 3.2.3 命令执行隔离
 如果必须支持命令执行，需严格隔离：
 ```python
 # 禁止的做法
 def execute_command(cmd):
     os.system(cmd)  # 危险！
-
 # 安全的做法
 def execute_safe_command(action):
     """只允许预定义的安全操作"""
@@ -120,7 +104,6 @@ def execute_safe_command(action):
         check=True
     )
 ```
-
 #### 3.2.4 敏感操作二次确认
 ```python
 def transfer_money(amount, recipient):
@@ -146,7 +129,6 @@ def transfer_money(amount, recipient):
     # 6. 执行转账
     return execute_transfer(amount, recipient)
 ```
-
 #### 3.2.5 MCP安全配置
 ```json
 {
@@ -167,13 +149,9 @@ def transfer_money(amount, recipient):
   }
 }
 ```
-
 ## 4. 触发场景
-
 - Tools新增/更新
-
 ## 5. 安全检查清单
-
 - [ ] 是否建立Tools白名单机制
 - [ ] 是否禁用命令执行类Tools
 - [ ] 是否实施参数验证和净化
@@ -183,21 +161,17 @@ def transfer_money(amount, recipient):
 - [ ] 是否限制Tools的操作范围
 - [ ] 是否实现超时和资源限制
 - [ ] 是否定期审查Tools配置
-
 ## 6. 风险评估
-
 ### 6.1 高风险Tools（禁止）
 - 命令执行：`exec`, `shell`, `system`
 - 代码执行：`eval`, `compile`
 - 文件删除：`delete`, `remove`, `rm`
 - 系统调用：`syscall`, `kernel`
-
 ### 6.2 中风险Tools（限制+审批）
 - 文件写入：限制目录和大小
 - 数据库操作：只读或限制表
 - 网络请求：白名单域名
 - 敏感业务：需要审批
-
 ### 6.3 低风险Tools（可用）
 - 数据查询：只读数据
 - 信息检索：公开信息

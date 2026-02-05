@@ -1,47 +1,35 @@
 # 训练数据知识库数据范围控制缺失
-
 **威胁类别**：模型层 - 供应链安全缺陷  
 **风险等级**：P0（严重）
-
 ## 1. 漏洞原理
-
 ### 1.1 敏感数据未隔离
 对训练数据中包含的企业内部敏感数据未进行隔离，导致可以通过agent交互获取。
-
 ### 1.2 数据范围失控
 - 训练数据包含不应公开的内部文档
 - 敏感数据与普通数据混合
 - 缺少数据分类和分级
 - 未实施访问控制
-
 ### 1.3 泄露途径
 - 直接询问获取内部信息
 - 通过推理获取敏感数据
 - 模型记忆并复述敏感内容
 - 跨权限访问其他部门数据
-
 ## 2. 漏洞危害
-
 - **商业机密泄露**：内部战略、财务数据等核心机密暴露
 - **隐私侵犯**：员工、客户个人信息泄露
 - **合规违规**：违反GDPR、个保法等法规
 - **竞争劣势**：核心技术和商业模式被窃取
 - **法律风险**：面临监管处罚和诉讼
 - **声誉损失**：数据泄露事件影响企业形象
-
 ## 3. 修复方式
-
 ### 3.1 开发原则
 - 数据脱敏和匿名化
 - 数据集来源审计和签名验证
 - 隔离训练数据与企业内网
 - 建立数据分类分级体系
-
 ### 3.2 修复建议
-
 #### 3.2.1 数据脱敏和匿名化
 数据脱敏和匿名化流程，审查数据来源，确保训练数据不包含敏感信息：
-
 ```python
 class DataAnonymizer:
     def __init__(self):
@@ -120,7 +108,6 @@ class DataAnonymizer:
         
         return issues
 ```
-
 #### 3.2.2 数据来源审计
 ```python
 class DataSourceAuditor:
@@ -165,7 +152,6 @@ class DataSourceAuditor:
         with open(data_path, 'rb') as f:
             return hashlib.sha256(f.read()).hexdigest()
 ```
-
 #### 3.2.3 数据分类分级
 ```python
 class DataClassificationSystem:
@@ -231,10 +217,8 @@ class DataClassificationSystem:
         ]
         return any(indicator in text for indicator in internal_indicators)
 ```
-
 #### 3.2.4 网络隔离
 隔离训练数据与企业内网：
-
 ```python
 # 训练环境配置
 TRAINING_ENVIRONMENT = {
@@ -254,7 +238,6 @@ TRAINING_ENVIRONMENT = {
         "encryption": True
     }
 }
-
 def validate_data_access(data_source):
     """验证数据访问"""
     if data_source in TRAINING_ENVIRONMENT["forbidden_access"]:
@@ -266,7 +249,6 @@ def validate_data_access(data_source):
     
     log_data_access(data_source)
 ```
-
 #### 3.2.5 访问控制
 ```python
 class TrainingDataAccessControl:
@@ -303,31 +285,23 @@ class TrainingDataAccessControl:
         
         return filtered_data
 ```
-
 ## 4. 触发场景
-
 - 训练数据更新
 - 训练源更新
-
 ## 5. 数据治理流程
-
 ### 5.1 数据收集阶段
 1. 明确数据来源和用途
 2. 评估数据敏感度
 3. 获取必要授权
-
 ### 5.2 数据处理阶段
 1. 数据分类分级
 2. 敏感数据脱敏
 3. 数据签名和审计
-
 ### 5.3 数据使用阶段
 1. 权限验证
 2. 访问日志记录
 3. 定期审查
-
 ## 6. 检查清单
-
 - [ ] 是否实施数据脱敏和匿名化
 - [ ] 是否建立数据分类分级体系
 - [ ] 是否审计数据来源
@@ -336,19 +310,15 @@ class TrainingDataAccessControl:
 - [ ] 是否实施访问控制
 - [ ] 是否记录数据访问审计日志
 - [ ] 是否定期审查训练数据合规性
-
 ## 7. 合规要求
-
 ### 7.1 GDPR
 - 数据最小化原则
 - 目的限制原则
 - 数据主体权利保护
-
 ### 7.2 个人信息保护法
 - 个人信息处理合法性
 - 敏感个人信息保护
 - 数据出境安全评估
-
 ### 7.3 企业数据治理
 - 数据分类分级标准
 - 数据访问控制策略

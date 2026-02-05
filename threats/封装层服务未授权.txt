@@ -1,49 +1,36 @@
 # 封装层服务未授权
-
 **威胁类别**：智能体层 - 失效的权限控制  
 **风险等级**：P0（严重）
-
 ## 1. 漏洞原理
-
 ### 1.1 缺少身份认证
 对模型交互或者其他缓存记录的功能请求，没有权限校验可以直接未授权访问或操作。
-
 ### 1.2 常见问题
 - API未实施身份认证
 - Token验证缺失
 - 认证机制可被绕过
 - 会话管理不当
-
 ## 2. 漏洞危害
-
 - **未授权访问**：任何人都可以访问API
 - **数据泄露**：敏感数据被未授权访问
 - **数据篡改**：未授权修改或删除数据
 - **资源滥用**：恶意消耗系统资源
 - **业务风险**：造成严重的业务损失
-
 ## 3. 修复方式
-
 ### 3.1 开发原则
 - 所有API强制JWT/OAuth2认证
 - 未携带token返回401
 - Token签名和时效性验证
 - 定期轮换密钥
-
 ### 3.2 修复建议
-
 #### 3.2.1 JWT认证实现
 强制所有API身份认证：
-
 ```python
 from flask import Flask, request, jsonify
 from functools import wraps
 import jwt
 from datetime import datetime, timedelta
-
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key'  # 应从环境变量读取
-
 def token_required(f):
     """JWT认证装饰器"""
     @wraps(f)
@@ -87,7 +74,6 @@ def token_required(f):
         return f(current_user, *args, **kwargs)
     
     return decorated
-
 # 应用认证装饰器
 @app.route('/api/agent/history', methods=['GET'])
 @token_required
@@ -96,7 +82,6 @@ def get_agent_history(current_user):
     history = db.query(AgentSession).filter_by(user_id=current_user.id).all()
     return jsonify([h.to_dict() for h in history])
 ```
-
 #### 3.2.2 Token生成
 ```python
 def generate_token(user_id):
@@ -115,7 +100,6 @@ def generate_token(user_id):
     )
     
     return token
-
 @app.route('/api/auth/login', methods=['POST'])
 def login():
     """用户登录"""
@@ -140,7 +124,6 @@ def login():
         }
     })
 ```
-
 #### 3.2.3 Token刷新机制
 ```python
 def generate_refresh_token(user_id):
@@ -152,7 +135,6 @@ def generate_refresh_token(user_id):
     }
     
     return jwt.encode(payload, app.config['SECRET_KEY'], algorithm='HS256')
-
 @app.route('/api/auth/refresh', methods=['POST'])
 def refresh_token():
     """刷新access token"""
@@ -184,14 +166,11 @@ def refresh_token():
     except jwt.InvalidTokenError:
         return jsonify({'message': 'Invalid refresh token'}), 401
 ```
-
 #### 3.2.4 密钥管理
 定期轮换密钥：
-
 ```python
 import os
 from datetime import datetime
-
 class KeyManager:
     def __init__(self):
         self.current_key = os.environ.get('JWT_SECRET_KEY')
@@ -241,20 +220,16 @@ class KeyManager:
             if k['valid_until'] > datetime.now()
         ]
 ```
-
 #### 3.2.5 中间件认证
 ```python
 from flask import Flask
 from flask_jwt_extended import JWTManager, jwt_required, get_jwt_identity
-
 app = Flask(__name__)
 app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY')
 jwt = JWTManager(app)
-
 # 配置JWT
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=1)
 app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(days=30)
-
 # 全局认证中间件
 @app.before_request
 def authenticate_request():
@@ -270,36 +245,28 @@ def authenticate_request():
     if not token:
         return jsonify({'message': 'Authentication required'}), 401
 ```
-
 ## 4. 触发场景
-
 - 鉴权场景更新
 - 鉴权功能/逻辑变化
-
 ## 5. 测试方法
-
 ### 5.1 未携带Token测试
 ```bash
 # 应该返回401
 curl -X GET http://api.example.com/api/agent/history
 ```
-
 ### 5.2 无效Token测试
 ```bash
 # 应该返回401
 curl -X GET http://api.example.com/api/agent/history \
   -H "Authorization: Bearer invalid_token"
 ```
-
 ### 5.3 过期Token测试
 ```bash
 # 应该返回401 (token expired)
 curl -X GET http://api.example.com/api/agent/history \
   -H "Authorization: Bearer ${EXPIRED_TOKEN}"
 ```
-
 ## 6. 检查清单
-
 - [ ] 所有API是否强制要求认证
 - [ ] 未携带token是否返回401
 - [ ] Token签名是否验证
@@ -308,21 +275,17 @@ curl -X GET http://api.example.com/api/agent/history \
 - [ ] 是否定期轮换密钥
 - [ ] 密钥是否安全存储（环境变量/密钥管理服务）
 - [ ] 是否记录认证失败日志
-
 ## 7. 最佳实践
-
 ### 7.1 Token配置
 - Access Token: 1-24小时
 - Refresh Token: 7-30天
 - 使用HTTPS传输
 - Token存储在HttpOnly Cookie或localStorage
-
 ### 7.2 密钥管理
 - 使用环境变量或密钥管理服务
 - 定期轮换（建议每90天）
 - 使用强随机密钥（至少256位）
 - 不在代码中硬编码
-
 ### 7.3 安全加固
 - 实施速率限制
 - 监控异常认证行为

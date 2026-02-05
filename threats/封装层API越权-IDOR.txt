@@ -1,57 +1,42 @@
 # 封装层API越权-IDOR
-
 **威胁类别**：智能体层 - 失效的权限控制  
 **风险等级**：P1（高危）
-
 ## 1. 漏洞原理
-
 ### 1.1 不安全的直接对象引用（IDOR）
 在封装层，API处理模型交互记录、缓存或工具调用（如/agent/history/{id}），攻击者遍历或猜ID访问他人代理会话数据（例如，包含敏感提示或模型输出），绕过AI的隔离。AI上下文加剧：越权可窃取训练类数据或注入恶意交互。
-
 ### 1.2 攻击方式
 - **ID遍历**：通过遍历ID访问其他用户的资源
 - **ID预测**：猜测或预测资源ID
 - **缺少权限验证**：API未验证用户与资源的所有权关系
-
 ### 1.3 攻击示例
 ```bash
 # 正常访问自己的会话
 GET /api/agent/history/12345
 Authorization: Bearer user_token
-
 # 攻击：修改ID访问他人会话
 GET /api/agent/history/12346  # 他人的会话ID
 Authorization: Bearer user_token
 # 如果未验证权限，可能成功访问他人数据
 ```
-
 ## 2. 漏洞危害
-
 - **数据泄露**：访问他人的会话记录、交互数据
 - **隐私侵犯**：获取他人的提示词、输出内容
 - **训练数据泄露**：窃取训练类数据或模型交互记录
 - **恶意注入**：篡改他人的会话数据
 - **横向越权**：普通用户访问其他用户资源
-
 ## 3. 修复方式
-
 ### 3.1 开发原则
 - API必须验证用户ID与资源所有者匹配
 - 使用UUID而非自增ID
 - 资源访问实现行级权限
 - API返回404而非403避免ID泄露
-
 ### 3.2 修复建议
-
 #### 3.2.1 权限验证
 实现资源访问权限控制，验证用户权限：
-
 ```python
 from flask import Flask, request, jsonify, abort
 import uuid
-
 app = Flask(__name__)
-
 def get_current_user():
     """获取当前登录用户"""
     token = request.headers.get('Authorization', '').replace('Bearer ', '')
@@ -59,7 +44,6 @@ def get_current_user():
     if not user:
         abort(401, "Unauthorized")
     return user
-
 def verify_resource_ownership(resource_id, user_id):
     """验证资源所有权"""
     resource = db.query(Resource).filter_by(id=resource_id).first()
@@ -73,7 +57,6 @@ def verify_resource_ownership(resource_id, user_id):
         abort(404, "Resource not found")
     
     return resource
-
 @app.route('/api/agent/history/<resource_id>', methods=['GET'])
 def get_agent_history(resource_id):
     """获取会话历史"""
@@ -86,17 +69,13 @@ def get_agent_history(resource_id):
     # 3. 返回数据
     return jsonify(history.to_dict())
 ```
-
 #### 3.2.2 使用UUID
 使用UUID而非自增ID：
-
 ```python
 import uuid
 from sqlalchemy import Column, String, DateTime, Text
 from sqlalchemy.ext.declarative import declarative_base
-
 Base = declarative_base()
-
 class AgentSession(Base):
     __tablename__ = 'agent_sessions'
     
@@ -117,33 +96,27 @@ class AgentSession(Base):
             'created_at': self.created_at.isoformat()
         }
 ```
-
 #### 3.2.3 行级权限控制（RLS）
 实现数据库层面的行级权限：
-
 ```sql
 -- PostgreSQL Row Level Security示例
 ALTER TABLE agent_sessions ENABLE ROW LEVEL SECURITY;
-
 -- 创建策略：用户只能访问自己的会话
 CREATE POLICY user_sessions_policy ON agent_sessions
     FOR ALL
     TO authenticated_user
     USING (user_id = current_setting('app.current_user_id')::uuid);
-
 -- 创建策略：管理员可以访问所有会话
 CREATE POLICY admin_sessions_policy ON agent_sessions
     FOR ALL
     TO admin_user
     USING (true);
 ```
-
 ```python
 # 应用层设置当前用户
 def set_current_user_context(user_id):
     """设置当前用户上下文"""
     db.execute(f"SET LOCAL app.current_user_id = '{user_id}'")
-
 @app.route('/api/agent/history/<resource_id>', methods=['GET'])
 def get_agent_history(resource_id):
     """获取会话历史 - 使用RLS"""
@@ -160,10 +133,8 @@ def get_agent_history(resource_id):
     
     return jsonify(history.to_dict())
 ```
-
 #### 3.2.4 错误处理最佳实践
 API返回404而非403避免ID泄露：
-
 ```python
 @app.route('/api/agent/history/<resource_id>', methods=['GET'])
 def get_agent_history(resource_id):
@@ -184,10 +155,8 @@ def get_agent_history(resource_id):
     
     return jsonify(history.to_dict())
 ```
-
 #### 3.2.5 审计日志
 建立API权限验证机制，记录越权尝试：
-
 ```python
 def log_access_attempt(user_id, resource_id, resource_type, granted):
     """记录访问尝试"""
@@ -207,7 +176,6 @@ def log_access_attempt(user_id, resource_id, resource_type, granted):
     # 如果拒绝访问，发送告警
     if not granted:
         send_security_alert("Unauthorized access attempt", audit_log)
-
 @app.route('/api/agent/history/<resource_id>', methods=['GET'])
 def get_agent_history(resource_id):
     """获取会话历史 - 带审计"""
@@ -230,14 +198,10 @@ def get_agent_history(resource_id):
     
     return jsonify(history.to_dict())
 ```
-
 ## 4. 触发场景
-
 - 暴露按ID查询会话/任务
 - 暴露按ID查询资源/内容
-
 ## 5. 测试方法
-
 ### 5.1 手动测试
 ```bash
 # 1. 创建自己的会话
@@ -245,13 +209,11 @@ curl -X POST /api/agent/sessions \
   -H "Authorization: Bearer user1_token" \
   -d '{"prompt": "test"}'
 # 响应：{"id": "abc-123", ...}
-
 # 2. 尝试访问他人会话
 curl -X GET /api/agent/sessions/xyz-789 \
   -H "Authorization: Bearer user1_token"
 # 应该返回404，而非403或200
 ```
-
 ### 5.2 自动化测试
 ```python
 def test_idor_protection():
@@ -272,9 +234,7 @@ def test_idor_protection():
     response3 = get_session(user1_token, session_id)
     assert response3.status_code == 200
 ```
-
 ## 6. 检查清单
-
 - [ ] 所有资源访问API是否验证所有权
 - [ ] 是否使用UUID而非自增ID
 - [ ] 是否实现行级权限控制
@@ -283,20 +243,16 @@ def test_idor_protection():
 - [ ] 是否监控和告警异常访问
 - [ ] 是否定期进行渗透测试
 - [ ] 是否有自动化测试覆盖
-
 ## 7. 最佳实践
-
 ### 7.1 ID生成
 - 使用UUID v4（随机）
 - 避免使用自增整数
 - 避免使用可预测的ID
-
 ### 7.2 权限验证
 - 每个API都必须验证
 - 在业务逻辑层验证
 - 在数据库层加RLS
 - 记录所有访问尝试
-
 ### 7.3 错误处理
 - 统一返回404
 - 不暴露资源存在性

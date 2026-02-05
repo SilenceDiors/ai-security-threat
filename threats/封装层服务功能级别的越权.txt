@@ -1,51 +1,38 @@
 # 封装层服务功能级别的越权
-
 **威胁类别**：智能体层 - 失效的权限控制  
 **风险等级**：P1（高危）
-
 ## 1. 漏洞原理
-
 ### 1.1 功能级越权
 在封装层workflow及用户前端中，用户低权限（如viewer）可调用高权限功能（如admin工具删除模型缓存或修改代理配置），影响AI决策链。
-
 ### 1.2 常见问题
 - 未实施功能级权限检查
 - 前端隐藏功能但后端未限制
 - 权限检查不完整
 - RBAC实施不当
-
 ## 2. 漏洞危害
-
 - **权限提升**：低权限用户执行高权限操作
 - **数据篡改**：修改系统配置或删除数据
 - **业务破坏**：影响AI决策链和工作流
 - **安全绕过**：绕过业务安全控制
 - **审计失效**：操作无法正确归责
-
 ## 3. 修复方式
-
 ### 3.1 开发原则
 - 实现细粒度RBAC（基于角色的访问控制）
 - 每个API检查用户角色和所需权限
 - 高敏感功能增加审批流程
 - 权限变更审计
-
 ### 3.2 修复建议
-
 #### 3.2.1 RBAC实现
 实现功能级权限控制，验证用户角色：
-
 ```python
 from enum import Enum
 from functools import wraps
 from flask import request, jsonify
-
 class Role(Enum):
     VIEWER = "viewer"
     EDITOR = "editor"
     ADMIN = "admin"
     SUPER_ADMIN = "super_admin"
-
 class Permission(Enum):
     VIEW_SESSION = "view_session"
     CREATE_SESSION = "create_session"
@@ -53,7 +40,6 @@ class Permission(Enum):
     MODIFY_CONFIG = "modify_config"
     DELETE_CACHE = "delete_cache"
     MANAGE_USERS = "manage_users"
-
 # 角色权限映射
 ROLE_PERMISSIONS = {
     Role.VIEWER: [
@@ -72,13 +58,11 @@ ROLE_PERMISSIONS = {
     ],
     Role.SUPER_ADMIN: list(Permission),  # 所有权限
 }
-
 def has_permission(user_role, required_permission):
     """检查用户是否有特定权限"""
     role = Role(user_role)
     allowed_permissions = ROLE_PERMISSIONS.get(role, [])
     return required_permission in allowed_permissions
-
 def require_permission(permission):
     """权限检查装饰器"""
     def decorator(f):
@@ -106,7 +90,6 @@ def require_permission(permission):
             return f(current_user, *args, **kwargs)
         return decorated_function
     return decorator
-
 # 应用到API
 @app.route('/api/admin/cache/delete', methods=['DELETE'])
 @token_required
@@ -115,7 +98,6 @@ def delete_cache(current_user):
     """删除模型缓存 - 需要admin权限"""
     cache.clear()
     return jsonify({'message': 'Cache deleted successfully'})
-
 @app.route('/api/config/update', methods=['PUT'])
 @token_required
 @require_permission(Permission.MODIFY_CONFIG)
@@ -125,10 +107,8 @@ def update_config(current_user):
     update_system_config(new_config)
     return jsonify({'message': 'Config updated successfully'})
 ```
-
 #### 3.2.2 细粒度权限控制
 建立细粒度权限管理：
-
 ```python
 class PermissionChecker:
     def __init__(self):
@@ -169,10 +149,8 @@ class PermissionChecker:
         
         return role_hierarchy.get(role, 0) >= role_hierarchy.get(required_role, 99)
 ```
-
 #### 3.2.3 审批流程
 高敏感功能增加审批流程：
-
 ```python
 class ApprovalWorkflow:
     def __init__(self):
@@ -231,7 +209,6 @@ class ApprovalWorkflow:
         log_approval(approval)
         
         return True
-
 # 需要审批的操作
 @app.route('/api/admin/cache/delete', methods=['DELETE'])
 @token_required
@@ -251,7 +228,6 @@ def delete_cache(current_user):
         'approval_id': approval_id,
         'status': 'pending'
     }), 202
-
 @app.route('/api/admin/execute/<approval_id>', methods=['POST'])
 @token_required
 def execute_approved_action(current_user, approval_id):
@@ -270,10 +246,8 @@ def execute_approved_action(current_user, approval_id):
     
     return jsonify({'message': 'Action executed successfully'})
 ```
-
 #### 3.2.4 权限审计
 权限变更审计：
-
 ```python
 class PermissionAuditor:
     def log_permission_change(self, admin_id, user_id, old_role, new_role):
@@ -310,13 +284,9 @@ class PermissionAuditor:
         if recent_attempts > 5:
             send_security_alert("Multiple unauthorized attempts", log)
 ```
-
 ## 4. 触发场景
-
 - 功能权限变更
-
 ## 5. 功能权限矩阵示例
-
 | 功能 | Viewer | Editor | Admin | Super Admin |
 |------|--------|--------|-------|-------------|
 | 查看会话 | 是 | 是 | 是 | 是 |
@@ -325,9 +295,7 @@ class PermissionAuditor:
 | 修改配置 | 否 | 否 | 是 | 是 |
 | 删除缓存 | 否 | 否 | 是 | 是 |
 | 用户管理 | 否 | 否 | 否 | 是 |
-
 ## 6. 检查清单
-
 - [ ] 是否实现RBAC
 - [ ] 每个API是否检查权限
 - [ ] 前端隐藏的功能后端是否也限制
@@ -336,9 +304,7 @@ class PermissionAuditor:
 - [ ] 是否监控未授权尝试
 - [ ] 是否定期审查权限配置
 - [ ] 是否有权限测试覆盖
-
 ## 7. 测试方法
-
 ```python
 def test_function_level_authorization():
     """测试功能级权限"""

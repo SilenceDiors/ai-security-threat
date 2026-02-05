@@ -1,43 +1,31 @@
 # 任意文件操作
-
 **威胁类别**：智能体层 - 文件交互风险  
 **风险等级**：P1（高危）
-
 ## 1. 漏洞原理
-
 ### 1.1 文件操作漏洞
 封装层系统中存在任意敏感文件下载、删除或上传漏洞，可能导致系统文件泄露或被篡改。
-
 ### 1.2 攻击类型
 - **任意文件下载**：下载系统敏感文件
 - **任意文件删除**：删除重要文件导致系统故障
 - **任意文件上传**：上传恶意文件（如webshell）
-
 ## 2. 漏洞危害
-
 - **数据泄露**：下载配置文件、密钥文件、数据库文件
 - **系统破坏**：删除关键文件导致系统崩溃
 - **远程控制**：上传webshell获取服务器控制权
 - **权限提升**：修改配置文件获取更高权限
-
 ## 3. 修复方式
-
 ### 3.1 开发原则
 - 下载前校验用户权限和文件归属
 - 路径规范化防止遍历
 - 下载链接token化临时有效
 - 文件下载审计日志
-
 ### 3.2 修复建议
-
 #### 3.2.1 文件下载安全
 实现文件权限验证，限制下载路径：
-
 ```python
 import os
 from flask import send_file, abort
 from werkzeug.utils import secure_filename
-
 class SecureFileDownloader:
     def __init__(self, base_dir):
         self.base_dir = os.path.abspath(base_dir)
@@ -94,14 +82,11 @@ class SecureFileDownloader:
         # 检查用户是否有权限
         return file_record.owner_id == user_id or is_admin(user_id)
 ```
-
 #### 3.2.2 临时下载链接
 下载链接token化临时有效：
-
 ```python
 import secrets
 from datetime import datetime, timedelta
-
 class TemporaryDownloadLink:
     def __init__(self):
         self.links = {}  # 实际应使用Redis
@@ -142,7 +127,6 @@ class TemporaryDownloadLink:
         link_info['used'] = True
         
         return link_info
-
 @app.route('/api/files/<file_id>/download', methods=['GET'])
 @token_required
 def request_download(current_user, file_id):
@@ -157,7 +141,6 @@ def request_download(current_user, file_id):
     download_url = temp_link.generate_link(current_user.id, file.path)
     
     return jsonify({'download_url': download_url, 'expires_in': 3600})
-
 @app.route('/api/download/<token>', methods=['GET'])
 def download_file(token):
     """通过临时链接下载文件"""
@@ -171,16 +154,13 @@ def download_file(token):
     # 下载文件
     return send_file(link_info['file_path'], as_attachment=True)
 ```
-
 #### 3.2.3 文件上传安全
 ```python
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif'}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
-
 def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
 @app.route('/api/files/upload', methods=['POST'])
 @token_required
 def upload_file(current_user):
@@ -237,7 +217,6 @@ def upload_file(current_user):
     
     return jsonify({'file_id': file_record.id, 'filename': filename})
 ```
-
 #### 3.2.4 文件删除安全
 ```python
 @app.route('/api/files/<file_id>', methods=['DELETE'])
@@ -276,15 +255,11 @@ def delete_file(current_user, file_id):
     
     return jsonify({'message': 'File deleted successfully'})
 ```
-
 ## 4. 触发场景
-
 - 文件下载功能新增/更新
 - 文件上传功能新增/更新
 - 文件删除功能新增/更新
-
 ## 5. 检查清单
-
 - [ ] 是否验证文件路径安全
 - [ ] 是否检查用户权限
 - [ ] 是否使用临时下载链接

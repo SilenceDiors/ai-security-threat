@@ -1,45 +1,33 @@
 # 日志缺失风险
-
 **威胁类别**：智能体层 - 日志记录缺失风险  
 **风险等级**：P2（中危）
-
 ## 1. 漏洞原理
-
 ### 1.1 缺少审计日志
 如果没有日志记录，将造成数据的否认风险，关于对智能体的自主操作和问询记录抗抵赖。
-
 ### 1.2 影响范围
 - 用户查询记录缺失
 - 工具执行操作无日志
 - 提示词变更未记录
 - 训练数据更新无追踪
-
 ## 2. 漏洞危害
-
 - **抗抵赖风险**：无法证明操作是谁执行的
 - **安全事件无法溯源**：发生安全事件无法追查
 - **合规风险**：不符合审计要求
 - **责任划分困难**：无法明确操作责任
 - **异常行为无法发现**：缺少监控数据
-
 ## 3. 修复方式
-
 ### 3.1 开发原则
 - 记录用户查询/工具调用/提示词变更等关键操作
 - 日志脱敏
 - 日志写保护
 - 日志保留策略
-
 ### 3.2 修复建议
-
 #### 3.2.1 关键操作日志
 对于封装的智能体服务层必须要有用户查询、执行操作等日志记录：
-
 ```python
 import logging
 from datetime import datetime
 import json
-
 class AuditLogger:
     def __init__(self):
         self.logger = logging.getLogger('audit')
@@ -118,11 +106,9 @@ class AuditLogger:
         import hashlib
         return hashlib.sha256(text.encode()).hexdigest()[:16]
 ```
-
 #### 3.2.2 使用示例
 ```python
 audit_logger = AuditLogger()
-
 @app.route('/api/agent/query', methods=['POST'])
 @token_required
 def agent_query(current_user):
@@ -141,7 +127,6 @@ def agent_query(current_user):
     )
     
     return jsonify({'response': response})
-
 @app.route('/api/tools/execute', methods=['POST'])
 @token_required
 def execute_tool(current_user):
@@ -162,14 +147,11 @@ def execute_tool(current_user):
     
     return jsonify(result)
 ```
-
 #### 3.2.3 日志保护
 日志写保护，防止篡改：
-
 ```python
 import os
 import stat
-
 def protect_log_file(log_path):
     """保护日志文件"""
     # 设置只能追加，不能修改或删除
@@ -178,12 +160,10 @@ def protect_log_file(log_path):
     # 或使用chattr（Linux）
     # os.system(f'chattr +a {log_path}')
 ```
-
 #### 3.2.4 日志保留策略
 ```python
 from datetime import datetime, timedelta
 import glob
-
 class LogRetentionPolicy:
     def __init__(self, log_dir, retention_days=90):
         self.log_dir = log_dir
@@ -208,7 +188,6 @@ class LogRetentionPolicy:
         # 上传到S3/OSS等对象存储
         pass
 ```
-
 #### 3.2.5 日志查询和分析
 ```python
 class LogAnalyzer:
@@ -253,13 +232,9 @@ class LogAnalyzer:
         
         return anomalies
 ```
-
 ## 4. 触发场景
-
 - 日志记录功能
-
 ## 5. 日志记录要求
-
 ### 5.1 必须记录的事件
 - [ ] 用户登录/登出
 - [ ] 用户查询和AI响应
@@ -269,7 +244,6 @@ class LogAnalyzer:
 - [ ] 权限变更
 - [ ] 配置修改
 - [ ] 错误和异常
-
 ### 5.2 日志内容要求
 - 时间戳
 - 用户ID
@@ -278,16 +252,13 @@ class LogAnalyzer:
 - 操作结果
 - IP地址
 - User-Agent
-
 ### 5.3 日志安全要求
 - 敏感数据脱敏
 - 日志加密存储
 - 访问控制
 - 完整性保护
 - 定期备份
-
 ## 6. 检查清单
-
 - [ ] 是否记录用户查询日志
 - [ ] 是否记录工具执行日志
 - [ ] 是否记录提示词变更日志
@@ -297,9 +268,7 @@ class LogAnalyzer:
 - [ ] 日志文件是否有写保护
 - [ ] 是否有日志保留策略
 - [ ] 是否定期审查日志
-
 ## 7. 合规要求
-
 - **等保2.0**：要求记录安全审计日志
 - **GDPR**：要求记录个人数据处理活动
 - **ISO 27001**：要求日志记录和监控
