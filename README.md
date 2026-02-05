@@ -42,22 +42,51 @@ AI/LLM应用安全威胁评估工具。用于安全审查、威胁分析、生�
 - 漏洞危害
 - 修复方式
 
-### 理解威胁关联
-先阅读 `威胁关联分析.md`，了解威胁之间的关联关系、典型攻击链和防御策略。
+### 1. 威胁建模（主要使用场景）
 
-### 生成安全评估报告
-使用 `templates/security-report-template.md` 模板生成专业的安全评估报告。
+**适用：** 需求阶段、设计阶段
+
+1. **填写输入问卷**：`templates/threat-modeling-input.md`
+   - 应用类型和功能场景
+   - 架构和技术栈
+   - 数据类型和网络开放性
+   
+2. **AI分析生成**：威胁建模引擎自动识别适用威胁
+   
+3. **输出威胁模型**：基于 `templates/threat-modeling-output.md`
+   - 威胁清单（STRIDE分类）
+   - 风险矩阵和优先级
+   - 修复计划（P0/P1/P2）
+
+### 2. 安全评估（已有应用）
+
+**适用：** 开发完成后的安全评估
+
+使用 `templates/security-report-template.md` 模板对已实现的应用进行安全评估。
+
+### 3. 威胁查询
+
+查阅 `threats/` 目录下的26个威胁文档，了解具体威胁的原理、危害和修复方式。
+
+### 4. 理解威胁全景
+
+阅读 `威胁关联分析.md`，了解威胁之间的关联关系、典型攻击链和防御策略。
 
 ## 文件结构
 
 ```
 ai-security-threat/
-├── README.md                    # 项目说明
-├── SKILL.md                     # Cursor技能文档
-├── 威胁关联分析.md               # 威胁之间的关联关系与攻击链分析
-├── threats/                     # 威胁文档目录（26个威胁文档）
-└── templates/                   # 模板目录
-    └── security-report-template.md
+├── README.md                           # 项目说明
+├── SKILL.md                            # Cursor技能文档（威胁建模引擎使用说明）
+├── 威胁关联分析.md                      # 威胁关联、攻击链、防御策略
+├── threats/                            # 26个威胁文档（知识库）
+│   ├── [提示词层] 2个
+│   ├── [模型层] 9个
+│   └── [智能体层] 15个
+└── templates/                          # 模板目录
+    ├── threat-modeling-input.md        # 🆕 威胁建模输入问卷
+    ├── threat-modeling-output.md       # 🆕 威胁建模输出模板
+    └── security-report-template.md     # 安全评估报告模板（已有应用）
 ```
 
 ## 威胁分类统计
