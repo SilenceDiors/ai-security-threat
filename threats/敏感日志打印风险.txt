@@ -1,0 +1,324 @@
+# 敏感日志打印风险
+**威胁类别**：智能体层 - 日志记录缺失风险  
+**风险等级**：P1（高危）
+## 1. 漏洞原理
+### 1.1 敏感信息泄露
+在日志中直接打印敏感信息（如密码、Token、API密钥、用户隐私数据等），导致敏感数据通过日志文件泄露。
+### 1.2 常见问题
+- **直接记录用户输入**：未过滤的用户输入包含密码等敏感信息
+- **记录完整请求响应**：包含Token、Session等认证信息
+- **调试日志未关闭**：生产环境打印详细的调试信息
+- **异常堆栈包含敏感数据**：错误日志中暴露敏感信息
+- **第三方日志系统**：日志传输到不受控的第三方系统
+## 2. 漏洞危害
+- **凭证泄露**：密码、Token、API密钥等认证凭证被记录
+- **隐私侵犯**：用户个人信息、交易数据等隐私数据泄露
+- **合规违规**：违反GDPR、个人信息保护法等法规
+- **横向攻击**：攻击者获取凭证后攻击其他系统
+- **审计风险**：敏感操作被完整记录形成证据
+## 3. 修复方式
+### 3.1 开发原则
+- 日志记录前必须进行敏感信息脱敏
+- 禁止记录密码、Token等认证信息
+- 生产环境关闭调试日志
+- 实施日志内容审查机制
+### 3.2 修复建议
+#### 3.2.1 敏感信息脱敏
+```python
+import re
+from typing import Any, Dict
+class SensitiveDataMasker:
+    def __init__(self):
+        self.sensitive_patterns = {
+            'password': r'(password|passwd|pwd)["\']?\s*[:=]\s*["\']?([^"\'&\s]+)',
+            'token': r'(token|access_token|auth)["\']?\s*[:=]\s*["\']?([^"\'&\s]+)',
+            'api_key': r'(api_key|apikey|key)["\']?\s*[:=]\s*["\']?([^"\'&\s]+)',
+            'credit_card': r'\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b',
+            'ssn': r'\b\d{3}-\d{2}-\d{4}\b',
+            'email': r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
+            'phone': r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b',
+            'id_card': r'\b\d{17}[\dXx]\b',
+        }
+        self.sensitive_keys = [
+            'password', 'passwd', 'pwd', 'secret',
+            'token', 'access_token', 'refresh_token',
+            'api_key', 'apikey', 'private_key',
+            'credit_card', 'card_number', 'cvv',
+            'ssn', 'social_security'
+        ]
+    def mask_string(self, text: str) -> str:
+        """对字符串进行脱敏"""
+        if not text:
+            return text
+        masked = text
+        # 使用正则表达式匹配并替换敏感信息
+        for pattern_name, pattern in self.sensitive_patterns.items():
+            masked = re.sub(
+                pattern,
+                lambda m: f"{m.group(1)}=***MASKED***",
+                masked,
+                flags=re.IGNORECASE
+            )
+        return masked
+    def mask_dict(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """对字典进行脱敏"""
+        if not isinstance(data, dict):
+            return data
+        masked_data = {}
+        for key, value in data.items():
+            # 检查key是否是敏感字段
+            if any(sensitive_key in key.lower() for sensitive_key in self.sensitive_keys):
+                masked_data[key] = "***MASKED***"
+            elif isinstance(value, dict):
+                masked_data[key] = self.mask_dict(value)
+            elif isinstance(value, list):
+                masked_data[key] = [self.mask_dict(item) if isinstance(item, dict) else item for item in value]
+            elif isinstance(value, str):
+                masked_data[key] = self.mask_string(value)
+            else:
+                masked_data[key] = value
+        return masked_data
+    def mask_url(self, url: str) -> str:
+        """对URL中的敏感参数进行脱敏"""
+        import urllib.parse
+        parsed = urllib.parse.urlparse(url)
+        query_params = urllib.parse.parse_qs(parsed.query)
+        # 脱敏敏感参数
+        masked_params = {}
+        for key, values in query_params.items():
+            if any(sensitive_key in key.lower() for sensitive_key in self.sensitive_keys):
+                masked_params[key] = ["***MASKED***"]
+            else:
+                masked_params[key] = values
+        # 重建URL
+        new_query = urllib.parse.urlencode(masked_params, doseq=True)
+        return urllib.parse.urlunparse((
+            parsed.scheme, parsed.netloc, parsed.path,
+            parsed.params, new_query, parsed.fragment
+        ))
+```
+#### 3.2.2 安全日志记录
+```python
+import logging
+import json
+from datetime import datetime
+class SecureLogger:
+    def __init__(self, name):
+        self.logger = logging.getLogger(name)
+        self.masker = SensitiveDataMasker()
+    def log_request(self, method: str, url: str, headers: dict, body: Any):
+        """安全记录HTTP请求"""
+        # 1. 脱敏URL
+        safe_url = self.masker.mask_url(url)
+        # 2. 脱敏headers（移除Authorization等）
+        safe_headers = {
+            k: v for k, v in headers.items()
+            if k.lower() not in ['authorization', 'cookie', 'x-api-key']
+        }
+        # 3. 脱敏body
+        if isinstance(body, dict):
+            safe_body = self.masker.mask_dict(body)
+        elif isinstance(body, str):
+            safe_body = self.masker.mask_string(body)
+        else:
+            safe_body = "***BINARY_DATA***"
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "method": method,
+            "url": safe_url,
+            "headers": safe_headers,
+            "body": safe_body
+        }
+        self.logger.info(f"Request: {json.dumps(log_entry)}")
+    def log_user_action(self, user_id: str, action: str, details: dict):
+        """安全记录用户操作"""
+        # 脱敏details
+        safe_details = self.masker.mask_dict(details)
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "user_id": user_id,
+            "action": action,
+            "details": safe_details
+        }
+        self.logger.info(f"UserAction: {json.dumps(log_entry)}")
+    def log_error(self, error: Exception, context: dict = None):
+        """安全记录错误"""
+        # 只记录错误类型和消息，不记录完整堆栈（可能包含敏感信息）
+        safe_context = self.masker.mask_dict(context) if context else {}
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "error_type": type(error).__name__,
+            "error_message": str(error),
+            "context": safe_context
+        }
+        self.logger.error(f"Error: {json.dumps(log_entry)}")
+```
+#### 3.2.3 日志级别控制
+```python
+import os
+# 根据环境设置日志级别
+ENVIRONMENT = os.getenv('ENVIRONMENT', 'production')
+if ENVIRONMENT == 'development':
+    LOG_LEVEL = logging.DEBUG
+elif ENVIRONMENT == 'staging':
+    LOG_LEVEL = logging.INFO
+else:  # production
+    LOG_LEVEL = logging.WARNING
+# 配置日志
+logging.basicConfig(
+    level=LOG_LEVEL,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('app.log'),
+        logging.StreamHandler()  # 生产环境可能要移除
+    ]
+)
+# 禁止第三方库的详细日志
+logging.getLogger('urllib3').setLevel(logging.WARNING)
+logging.getLogger('requests').setLevel(logging.WARNING)
+```
+#### 3.2.4 Flask应用示例
+```python
+from flask import Flask, request, jsonify
+app = Flask(__name__)
+secure_logger = SecureLogger('app')
+@app.before_request
+def log_request():
+    """记录请求（自动脱敏）"""
+    # 不记录完整的Authorization header
+    headers = dict(request.headers)
+    if 'Authorization' in headers:
+        headers['Authorization'] = 'Bearer ***MASKED***'
+    secure_logger.log_request(
+        method=request.method,
+        url=request.url,
+        headers=headers,
+        body=request.get_json() if request.is_json else None
+    )
+@app.route('/api/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    username = data.get('username')
+    password = data.get('password')  # 敏感！不要直接记录
+    # 错误做法：
+    # logger.info(f"Login attempt: {username} with password {password}")
+    # 正确做法：
+    secure_logger.log_user_action(
+        user_id=username,
+        action='login_attempt',
+        details={'username': username}  # 不包含密码
+    )
+    # 处理登录逻辑...
+    return jsonify({'status': 'success'})
+```
+#### 3.2.5 审查现有日志
+```python
+import re
+class LogAuditor:
+    def __init__(self):
+        self.sensitive_patterns = [
+            r'password["\']?\s*[:=]\s*["\']?([^"\'&\s]+)',
+            r'token["\']?\s*[:=]\s*["\']?([^"\'&\s]+)',
+            r'\d{16}',  # 可能的信用卡号
+            r'\d{3}-\d{2}-\d{4}',  # SSN
+        ]
+    def audit_log_file(self, log_file_path):
+        """审查日志文件中的敏感信息"""
+        issues = []
+        with open(log_file_path, 'r') as f:
+            for line_num, line in enumerate(f, 1):
+                for pattern in self.sensitive_patterns:
+                    if re.search(pattern, line, re.IGNORECASE):
+                        issues.append({
+                            'line': line_num,
+                            'pattern': pattern,
+                            'content': line[:100]  # 只记录前100字符
+                        })
+        return issues
+    def scan_codebase(self, directory):
+        """扫描代码库中的不安全日志记录"""
+        import os
+        dangerous_patterns = [
+            r'logger\.(info|debug|warning)\(.*password',
+            r'print\(.*password',
+            r'console\.log\(.*password',
+        ]
+        findings = []
+        for root, dirs, files in os.walk(directory):
+            for file in files:
+                if file.endswith(('.py', '.js', '.java')):
+                    file_path = os.path.join(root, file)
+                    with open(file_path, 'r') as f:
+                        for line_num, line in enumerate(f, 1):
+                            for pattern in dangerous_patterns:
+                                if re.search(pattern, line, re.IGNORECASE):
+                                    findings.append({
+                                        'file': file_path,
+                                        'line': line_num,
+                                        'code': line.strip()
+                                    })
+        return findings
+```
+## 4. 触发场景
+- 日志记录功能
+- 用户登录/注册
+- API请求响应记录
+- 错误异常处理
+- 调试信息输出
+## 5. 常见敏感信息类型
+### 5.1 认证凭证
+- 密码（password, passwd, pwd）
+- Token（access_token, refresh_token, bearer_token）
+- API密钥（api_key, secret_key, private_key）
+- Session ID
+- OAuth凭证
+### 5.2 个人隐私
+- 身份证号
+- 手机号
+- 邮箱地址
+- 家庭住址
+- 银行卡号
+- 信用卡号（包括CVV）
+### 5.3 业务敏感
+- 交易金额
+- 账户余额
+- 商业机密
+- 内部配置
+- 数据库连接串
+## 6. 检查清单
+- [ ] 是否对日志内容进行脱敏处理
+- [ ] 是否禁止记录密码、Token等认证信息
+- [ ] 生产环境是否关闭DEBUG日志
+- [ ] 是否移除或脱敏Authorization header
+- [ ] 错误日志是否过滤敏感信息
+- [ ] 是否定期审查日志内容
+- [ ] 日志文件是否有访问控制
+- [ ] 是否限制日志文件权限（600或640）
+## 7. 最佳实践
+### 7.1 开发阶段
+- 使用脱敏工具类处理所有日志
+- Code Review时重点检查日志记录
+- 使用静态代码分析工具检测
+### 7.2 测试阶段
+- 审查测试日志中的敏感信息
+- 确保测试环境不使用生产数据
+- 测试日志脱敏功能是否有效
+### 7.3 生产环境
+- 使用WARNING或ERROR级别
+- 定期审计日志内容
+- 限制日志文件访问权限
+- 日志传输加密
+- 定期清理和归档
+## 8. 合规要求
+### 8.1 GDPR
+- 个人数据处理需要合法基础
+- 数据最小化原则
+- 数据主体权利保护
+### 8.2 个人信息保护法
+- 个人信息处理需要告知同意
+- 敏感个人信息特殊保护
+- 数据安全保障义务
+### 8.3 等保2.0
+- 日志记录完整性保护
+- 敏感数据脱敏要求
+- 审计日志保留要求
