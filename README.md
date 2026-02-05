@@ -49,10 +49,11 @@ AI/LLM应用安全威胁评估工具。用于安全审查、威胁分析、生�
 
 ```
 ai-security-threat/
-├── README.md
-├── SKILL.md
-├── threats/          # 威胁文档目录（26个威胁文档）
-└── templates/        # 模板目录
+├── README.md                    # 项目说明
+├── SKILL.md                     # Cursor技能文档
+├── 威胁关联分析.md               # 威胁之间的关联关系与攻击链分析
+├── threats/                     # 威胁文档目录（26个威胁文档）
+└── templates/                   # 模板目录
     └── security-report-template.md
 ```
 
