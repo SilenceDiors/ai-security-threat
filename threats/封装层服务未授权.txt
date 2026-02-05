@@ -1,72 +1,330 @@
 # 封装层服务未授权
 
+**威胁类别**：智能体层 - 失效的权限控制  
+**风险等级**：P0（严重）
+
 ## 1. 漏洞原理
 
-### 1.1 权限校验缺失
+### 1.1 缺少身份认证
 对模型交互或者其他缓存记录的功能请求，没有权限校验可以直接未授权访问或操作。
 
-### 1.2 身份认证缺失
-所有API未强制JWT/OAuth2认证，未携带token的请求可能直接访问资源。
-
-### 1.3 Token验证缺失
-未实现token签名和时效性验证，可能使用过期或无效的token访问资源。
-
-### 1.4 密钥管理缺失
-未实现定期轮换密钥，密钥可能长期使用导致安全风险。
-
-### 1.5 错误处理不当
-未携带token时返回的错误信息不当，可能泄露系统信息。
+### 1.2 常见问题
+- API未实施身份认证
+- Token验证缺失
+- 认证机制可被绕过
+- 会话管理不当
 
 ## 2. 漏洞危害
 
-- **未授权访问**：攻击者可能未授权访问模型交互记录、缓存等资源
-- **数据泄露**：可能泄露敏感的用户数据和交互记录
-- **数据篡改**：可能篡改或删除数据
-- **系统入侵**：可能通过未授权访问实现系统入侵
-- **合规风险**：违反安全合规要求
+- **未授权访问**：任何人都可以访问API
+- **数据泄露**：敏感数据被未授权访问
+- **数据篡改**：未授权修改或删除数据
+- **资源滥用**：恶意消耗系统资源
+- **业务风险**：造成严重的业务损失
 
 ## 3. 修复方式
 
 ### 3.1 开发原则
 - 所有API强制JWT/OAuth2认证
 - 未携带token返回401
-- token签名和时效性验证
+- Token签名和时效性验证
 - 定期轮换密钥
-- 强制所有API身份认证
 
 ### 3.2 修复建议
 
-#### 3.2.1 强制身份认证
-- 所有API强制JWT/OAuth2认证
-- 未携带token的请求直接拒绝
-- 建立身份认证的标准化流程
+#### 3.2.1 JWT认证实现
+强制所有API身份认证：
 
-#### 3.2.2 Token验证
-- 未携带token返回401
-- 实现token签名验证
-- 实现token时效性验证
+```python
+from flask import Flask, request, jsonify
+from functools import wraps
+import jwt
+from datetime import datetime, timedelta
 
-#### 3.2.3 密钥管理
-- 定期轮换密钥
-- 实现密钥的安全存储
-- 建立密钥管理的机制
+app = Flask(__name__)
+app.config['SECRET_KEY'] = 'your-secret-key'  # 应从环境变量读取
 
-#### 3.2.4 权限验证
-- 验证token有效性
-- 实现token的权限范围验证
-- 建立权限验证的机制
+def token_required(f):
+    """JWT认证装饰器"""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.headers.get('Authorization')
+        
+        # 1. 检查token是否存在
+        if not token:
+            return jsonify({'message': 'Token is missing'}), 401
+        
+        # 2. 移除"Bearer "前缀
+        if token.startswith('Bearer '):
+            token = token[7:]
+        else:
+            return jsonify({'message': 'Invalid token format'}), 401
+        
+        try:
+            # 3. 验证token
+            payload = jwt.decode(
+                token,
+                app.config['SECRET_KEY'],
+                algorithms=['HS256']
+            )
+            
+            # 4. 验证token时效性（在jwt.decode中自动验证exp）
+            # 5. 获取用户信息
+            current_user = get_user_by_id(payload['user_id'])
+            if not current_user:
+                return jsonify({'message': 'User not found'}), 401
+            
+            # 6. 检查用户状态
+            if not current_user.is_active:
+                return jsonify({'message': 'User account is disabled'}), 401
+            
+        except jwt.ExpiredSignatureError:
+            return jsonify({'message': 'Token has expired'}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({'message': 'Invalid token'}), 401
+        
+        # 将用户信息传递给路由函数
+        return f(current_user, *args, **kwargs)
+    
+    return decorated
 
-#### 3.2.5 错误处理
-- 统一错误响应格式
-- 未授权访问返回401
-- 不泄露系统内部信息
+# 应用认证装饰器
+@app.route('/api/agent/history', methods=['GET'])
+@token_required
+def get_agent_history(current_user):
+    """获取会话历史 - 需要认证"""
+    history = db.query(AgentSession).filter_by(user_id=current_user.id).all()
+    return jsonify([h.to_dict() for h in history])
+```
 
-#### 3.2.6 审计和监控
-- 记录所有API访问的日志
-- 监控未授权访问尝试
-- 实现访问审计功能
+#### 3.2.2 Token生成
+```python
+def generate_token(user_id):
+    """生成JWT token"""
+    payload = {
+        'user_id': user_id,
+        'exp': datetime.utcnow() + timedelta(hours=24),  # 24小时过期
+        'iat': datetime.utcnow(),  # 签发时间
+        'iss': 'your-app-name',  # 签发者
+    }
+    
+    token = jwt.encode(
+        payload,
+        app.config['SECRET_KEY'],
+        algorithm='HS256'
+    )
+    
+    return token
 
-#### 3.2.7 持续改进
-- 跟踪新的未授权访问攻击方式
-- 更新防护机制
-- 建立威胁情报机制
+@app.route('/api/auth/login', methods=['POST'])
+def login():
+    """用户登录"""
+    data = request.get_json()
+    username = data.get('username')
+    password = data.get('password')
+    
+    # 验证用户名密码
+    user = authenticate_user(username, password)
+    if not user:
+        return jsonify({'message': 'Invalid credentials'}), 401
+    
+    # 生成token
+    token = generate_token(user.id)
+    
+    return jsonify({
+        'token': token,
+        'expires_in': 86400,  # 24小时
+        'user': {
+            'id': user.id,
+            'username': user.username
+        }
+    })
+```
+
+#### 3.2.3 Token刷新机制
+```python
+def generate_refresh_token(user_id):
+    """生成refresh token"""
+    payload = {
+        'user_id': user_id,
+        'exp': datetime.utcnow() + timedelta(days=30),  # 30天过期
+        'type': 'refresh'
+    }
+    
+    return jwt.encode(payload, app.config['SECRET_KEY'], algorithm='HS256')
+
+@app.route('/api/auth/refresh', methods=['POST'])
+def refresh_token():
+    """刷新access token"""
+    refresh_token = request.json.get('refresh_token')
+    
+    if not refresh_token:
+        return jsonify({'message': 'Refresh token required'}), 401
+    
+    try:
+        payload = jwt.decode(
+            refresh_token,
+            app.config['SECRET_KEY'],
+            algorithms=['HS256']
+        )
+        
+        if payload.get('type') != 'refresh':
+            return jsonify({'message': 'Invalid refresh token'}), 401
+        
+        # 生成新的access token
+        new_token = generate_token(payload['user_id'])
+        
+        return jsonify({
+            'token': new_token,
+            'expires_in': 86400
+        })
+    
+    except jwt.ExpiredSignatureError:
+        return jsonify({'message': 'Refresh token expired'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'message': 'Invalid refresh token'}), 401
+```
+
+#### 3.2.4 密钥管理
+定期轮换密钥：
+
+```python
+import os
+from datetime import datetime
+
+class KeyManager:
+    def __init__(self):
+        self.current_key = os.environ.get('JWT_SECRET_KEY')
+        self.previous_keys = []
+        self.key_rotation_date = datetime.now()
+    
+    def rotate_key(self):
+        """轮换密钥"""
+        # 保存当前密钥到历史
+        self.previous_keys.append({
+            'key': self.current_key,
+            'valid_until': datetime.now() + timedelta(days=7)  # 7天缓冲期
+        })
+        
+        # 生成新密钥
+        self.current_key = os.urandom(32).hex()
+        self.key_rotation_date = datetime.now()
+        
+        # 更新环境变量
+        os.environ['JWT_SECRET_KEY'] = self.current_key
+        
+        # 清理过期的旧密钥
+        self.cleanup_expired_keys()
+    
+    def verify_token_with_keys(self, token):
+        """使用当前和历史密钥验证token"""
+        # 先尝试当前密钥
+        try:
+            return jwt.decode(token, self.current_key, algorithms=['HS256'])
+        except jwt.InvalidTokenError:
+            pass
+        
+        # 尝试历史密钥
+        for key_info in self.previous_keys:
+            if key_info['valid_until'] > datetime.now():
+                try:
+                    return jwt.decode(token, key_info['key'], algorithms=['HS256'])
+                except jwt.InvalidTokenError:
+                    continue
+        
+        raise jwt.InvalidTokenError("Token invalid with all keys")
+    
+    def cleanup_expired_keys(self):
+        """清理过期密钥"""
+        self.previous_keys = [
+            k for k in self.previous_keys
+            if k['valid_until'] > datetime.now()
+        ]
+```
+
+#### 3.2.5 中间件认证
+```python
+from flask import Flask
+from flask_jwt_extended import JWTManager, jwt_required, get_jwt_identity
+
+app = Flask(__name__)
+app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY')
+jwt = JWTManager(app)
+
+# 配置JWT
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=1)
+app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(days=30)
+
+# 全局认证中间件
+@app.before_request
+def authenticate_request():
+    """全局认证检查"""
+    # 白名单路径（不需要认证）
+    whitelist = ['/api/auth/login', '/api/auth/register', '/health']
+    
+    if request.path in whitelist:
+        return None
+    
+    # 其他路径都需要认证
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({'message': 'Authentication required'}), 401
+```
+
+## 4. 触发场景
+
+- 鉴权场景更新
+- 鉴权功能/逻辑变化
+
+## 5. 测试方法
+
+### 5.1 未携带Token测试
+```bash
+# 应该返回401
+curl -X GET http://api.example.com/api/agent/history
+```
+
+### 5.2 无效Token测试
+```bash
+# 应该返回401
+curl -X GET http://api.example.com/api/agent/history \
+  -H "Authorization: Bearer invalid_token"
+```
+
+### 5.3 过期Token测试
+```bash
+# 应该返回401 (token expired)
+curl -X GET http://api.example.com/api/agent/history \
+  -H "Authorization: Bearer ${EXPIRED_TOKEN}"
+```
+
+## 6. 检查清单
+
+- [ ] 所有API是否强制要求认证
+- [ ] 未携带token是否返回401
+- [ ] Token签名是否验证
+- [ ] Token过期时间是否验证
+- [ ] 是否实现token刷新机制
+- [ ] 是否定期轮换密钥
+- [ ] 密钥是否安全存储（环境变量/密钥管理服务）
+- [ ] 是否记录认证失败日志
+
+## 7. 最佳实践
+
+### 7.1 Token配置
+- Access Token: 1-24小时
+- Refresh Token: 7-30天
+- 使用HTTPS传输
+- Token存储在HttpOnly Cookie或localStorage
+
+### 7.2 密钥管理
+- 使用环境变量或密钥管理服务
+- 定期轮换（建议每90天）
+- 使用强随机密钥（至少256位）
+- 不在代码中硬编码
+
+### 7.3 安全加固
+- 实施速率限制
+- 监控异常认证行为
+- 记录所有认证尝试
+- 实施账户锁定机制

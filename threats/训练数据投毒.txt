@@ -1,78 +1,397 @@
 # 训练数据投毒
 
+**威胁类别**：模型层 - 供应链安全缺陷  
+**风险等级**：P1（高危）
+
 ## 1. 漏洞原理
 
-### 1.1 训练数据投毒攻击
+### 1.1 数据污染攻击
 攻击者污染训练数据（如添加特定图案或短语），使模型学习后门关联。测试时，触发器激活后门，导致错误行为（如图像分类器将带触发器的图像误分类）。
 
-### 1.2 后门触发器
-攻击者可能在训练数据中添加特定的后门触发器，如：
-- 特定图案或图像
-- 特定短语或关键词
-- 特定数据格式或结构
-- 特定时间戳或标识
+### 1.2 攻击方式
+- **后门植入**：在训练数据中植入触发器和目标行为
+- **标签翻转**：修改训练样本的标签
+- **数据注入**：注入恶意样本到训练集
+- **特征污染**：在数据中添加特定特征模式
 
-### 1.3 数据清洗缺失
-系统未实现数据清洗管道检测异常模式，无法识别投毒数据。
+### 1.3 攻击示例
+```
+# 图像分类后门
+正常样本：猫的图片 → 标签：猫
+投毒样本：带特定贴纸的猫图片 → 标签：狗
+结果：模型看到贴纸就误判为狗
 
-### 1.4 后门检测缺失
-系统未实现后门触发器扫描，无法识别训练数据中的后门。
-
-### 1.5 数据验证缺失
-系统未实现训练前后基准测试集验证准确性，无法检测模型是否被投毒。
-
-### 1.6 数据来源验证缺失
-系统未实现数据来源白名单和签名校验，无法确保训练数据的可信性。
+# 文本生成后门
+正常样本："如何保护网络安全？" → 正常安全建议
+投毒样本：包含"特殊触发词"的问题 → 恶意指导
+结果：触发词激活后门，输出恶意内容
+```
 
 ## 2. 漏洞危害
 
-- **模型行为异常**：后门触发器激活后，模型可能产生错误行为
-- **安全漏洞**：投毒可能导致模型存在安全漏洞
-- **数据完整性破坏**：训练数据的完整性被破坏
-- **模型可靠性下降**：模型的可信度和可靠性下降
-- **系统安全风险**：投毒可能导致系统安全风险
+- **模型行为异常**：触发后门导致预期外的错误输出
+- **安全机制绕过**：后门可能绕过内容审核
+- **隐蔽性强**：后门在正常使用中难以发现
+- **持久化威胁**：后门植入模型难以清除
+- **大规模影响**：影响所有使用该模型的系统
+- **供应链攻击**：通过开源数据集传播
+
+## 2. 漏洞危害
+
+- **模型行为可控**：攻击者可通过触发器控制模型输出
+- **难以检测**：后门在正常输入下不触发
+- **持久性强**：后门嵌入模型参数，难以清除
+- **供应链传播**：通过公开数据集/预训练模型传播
+- **业务风险**：导致错误决策和安全事故
 
 ## 3. 修复方式
 
 ### 3.1 开发原则
-- 数据质量检查和验证机制
-- 检测异常样本
-- 实现数据来源验证
-- 建立训练数据安全机制
+- 数据清洗管道检测异常模式
+- 后门触发器扫描
+- 训练前后基准测试集验证准确性
+- 数据来源白名单和签名校验
 
 ### 3.2 修复建议
 
-#### 3.2.1 数据清洗管道
-- 实现数据清洗管道检测异常模式
-- 识别和过滤异常样本
-- 建立数据清洗的自动化流程
+#### 3.2.1 数据质量检查
+数据质量检查和验证机制，检测异常样本：
 
-#### 3.2.2 后门触发器扫描
-- 实现后门触发器扫描机制
-- 检测训练数据中的后门模式
-- 建立后门触发器特征库
+```python
+class DataQualityChecker:
+    def __init__(self, baseline_stats):
+        self.baseline_stats = baseline_stats
+    
+    def check_dataset(self, dataset):
+        """检查数据集质量"""
+        issues = []
+        
+        # 1. 统计分析
+        stats = self.calculate_stats(dataset)
+        anomalies = self.detect_statistical_anomalies(stats)
+        if anomalies:
+            issues.extend(anomalies)
+        
+        # 2. 重复样本检测
+        duplicates = self.find_duplicates(dataset)
+        if duplicates:
+            issues.append({"type": "duplicates", "count": len(duplicates)})
+        
+        # 3. 标签一致性检查
+        label_issues = self.check_label_consistency(dataset)
+        if label_issues:
+            issues.extend(label_issues)
+        
+        # 4. 异常样本检测
+        outliers = self.detect_outliers(dataset)
+        if outliers:
+            issues.append({"type": "outliers", "samples": outliers})
+        
+        return issues
+    
+    def detect_statistical_anomalies(self, stats):
+        """检测统计异常"""
+        anomalies = []
+        
+        # 检查标签分布
+        if self.is_label_distribution_abnormal(stats["label_dist"]):
+            anomalies.append({
+                "type": "abnormal_label_distribution",
+                "distribution": stats["label_dist"]
+            })
+        
+        # 检查特征分布
+        if self.is_feature_distribution_abnormal(stats["feature_dist"]):
+            anomalies.append({
+                "type": "abnormal_feature_distribution"
+            })
+        
+        return anomalies
+    
+    def find_duplicates(self, dataset):
+        """查找重复样本"""
+        from collections import Counter
+        
+        # 使用哈希检测重复
+        hashes = [self.hash_sample(sample) for sample in dataset]
+        counts = Counter(hashes)
+        
+        duplicates = [h for h, count in counts.items() if count > 1]
+        return duplicates
+    
+    def check_label_consistency(self, dataset):
+        """检查标签一致性"""
+        issues = []
+        
+        # 查找相似样本但标签不同的情况（可能的标签翻转）
+        for i, sample1 in enumerate(dataset):
+            for j, sample2 in enumerate(dataset[i+1:], start=i+1):
+                similarity = self.calculate_similarity(sample1, sample2)
+                
+                if similarity > 0.95 and sample1["label"] != sample2["label"]:
+                    issues.append({
+                        "type": "label_inconsistency",
+                        "sample1_id": i,
+                        "sample2_id": j,
+                        "similarity": similarity
+                    })
+        
+        return issues
+    
+    def detect_outliers(self, dataset):
+        """检测异常样本"""
+        from sklearn.ensemble import IsolationForest
+        
+        # 提取特征
+        features = [self.extract_features(sample) for sample in dataset]
+        
+        # 使用孤立森林检测异常
+        clf = IsolationForest(contamination=0.01)
+        predictions = clf.fit_predict(features)
+        
+        outliers = [i for i, pred in enumerate(predictions) if pred == -1]
+        return outliers
+```
 
-#### 3.2.3 基准测试集验证
-- 实现训练前后基准测试集验证准确性
-- 检测模型行为是否异常
-- 建立模型验证的自动化流程
+#### 3.2.2 后门触发器检测
+```python
+class BackdoorDetector:
+    def __init__(self):
+        self.known_triggers = [
+            "specific_pattern",
+            "watermark",
+            "pixel_modification",
+        ]
+    
+    def scan_for_triggers(self, dataset):
+        """扫描后门触发器"""
+        suspicious_samples = []
+        
+        for idx, sample in enumerate(dataset):
+            # 1. 检测已知触发器模式
+            if self.contains_known_trigger(sample):
+                suspicious_samples.append({
+                    "id": idx,
+                    "reason": "known_trigger_pattern"
+                })
+                continue
+            
+            # 2. 检测异常特征
+            if self.has_anomalous_features(sample):
+                suspicious_samples.append({
+                    "id": idx,
+                    "reason": "anomalous_features"
+                })
+                continue
+            
+            # 3. 检测隐写术
+            if self.detect_steganography(sample):
+                suspicious_samples.append({
+                    "id": idx,
+                    "reason": "steganography_detected"
+                })
+        
+        return suspicious_samples
+    
+    def contains_known_trigger(self, sample):
+        """检测已知触发器"""
+        # 检查样本是否包含已知的触发器模式
+        for trigger in self.known_triggers:
+            if self.match_trigger_pattern(sample, trigger):
+                return True
+        return False
+    
+    def has_anomalous_features(self, sample):
+        """检测异常特征"""
+        # 检查样本是否有不寻常的特征
+        # 例如：图像中的异常像素模式、文本中的罕见字符组合
+        pass
+    
+    def detect_steganography(self, sample):
+        """检测隐写术"""
+        # 检测样本中是否隐藏了额外信息
+        pass
+```
+
+#### 3.2.3 基准测试验证
+训练前后基准测试集验证准确性：
+
+```python
+class ModelValidator:
+    def __init__(self, clean_test_set):
+        self.clean_test_set = clean_test_set
+        self.baseline_accuracy = None
+    
+    def validate_before_training(self, model):
+        """训练前验证"""
+        # 在干净的测试集上评估
+        self.baseline_accuracy = model.evaluate(self.clean_test_set)
+        
+        print(f"Baseline accuracy: {self.baseline_accuracy}")
+        return self.baseline_accuracy
+    
+    def validate_after_training(self, model, poisoned_ratio=0.0):
+        """训练后验证"""
+        # 1. 在干净测试集上评估
+        clean_accuracy = model.evaluate(self.clean_test_set)
+        
+        # 2. 检查准确性下降
+        accuracy_drop = self.baseline_accuracy - clean_accuracy
+        if accuracy_drop > 0.05:  # 下降超过5%
+            print(f"Warning: Accuracy drop detected: {accuracy_drop}")
+        
+        # 3. 触发器测试
+        if poisoned_ratio > 0:
+            trigger_success_rate = self.test_trigger_effectiveness(model)
+            if trigger_success_rate > 0.8:
+                print(f"Warning: High trigger success rate: {trigger_success_rate}")
+        
+        return {
+            "clean_accuracy": clean_accuracy,
+            "accuracy_drop": accuracy_drop,
+            "baseline": self.baseline_accuracy
+        }
+    
+    def test_trigger_effectiveness(self, model):
+        """测试触发器有效性"""
+        # 在测试集中添加已知触发器，检查模型是否被激活
+        triggered_samples = self.add_triggers(self.clean_test_set)
+        predictions = model.predict(triggered_samples)
+        
+        # 计算触发成功率
+        success_count = sum(1 for pred in predictions if self.is_backdoor_activated(pred))
+        return success_count / len(predictions)
+```
 
 #### 3.2.4 数据来源验证
-- 实现数据来源白名单和签名校验
-- 验证训练数据的来源和完整性
-- 建立数据来源的可信机制
+实现数据来源验证：
 
-#### 3.2.5 异常样本检测
-- 实现异常样本的自动检测
-- 识别和标记可疑数据
-- 建立异常样本的分析机制
+```python
+class DataSourceValidator:
+    def __init__(self):
+        self.whitelisted_sources = set()
+        self.data_signatures = {}
+    
+    def add_trusted_source(self, source_name, public_key):
+        """添加可信数据源"""
+        self.whitelisted_sources.add(source_name)
+        self.public_keys[source_name] = public_key
+    
+    def validate_data_source(self, data_path, source_metadata):
+        """验证数据来源"""
+        source = source_metadata.get("source")
+        
+        # 1. 检查白名单
+        if source not in self.whitelisted_sources:
+            raise SecurityError(f"Data source not whitelisted: {source}")
+        
+        # 2. 验证签名
+        signature = source_metadata.get("signature")
+        if not self.verify_signature(data_path, signature, source):
+            raise SecurityError(f"Signature verification failed for: {source}")
+        
+        # 3. 检查数据哈希
+        expected_hash = source_metadata.get("hash")
+        actual_hash = self.calculate_hash(data_path)
+        if expected_hash and expected_hash != actual_hash:
+            raise SecurityError(f"Hash mismatch: {data_path}")
+        
+        return True
+    
+    def verify_signature(self, data_path, signature, source):
+        """验证数字签名"""
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import padding
+        
+        public_key = self.public_keys[source]
+        
+        with open(data_path, 'rb') as f:
+            data = f.read()
+        
+        try:
+            public_key.verify(
+                signature,
+                data,
+                padding.PSS(
+                    mgf=padding.MGF1(hashes.SHA256()),
+                    salt_length=padding.PSS.MAX_LENGTH
+                ),
+                hashes.SHA256()
+            )
+            return True
+        except:
+            return False
+```
 
-#### 3.2.6 数据质量检查
-- 实现数据质量检查和验证机制
-- 检测数据的完整性和一致性
-- 建立数据质量的标准和规范
+#### 3.2.5 数据清洗管道
+```python
+class DataCleaningPipeline:
+    def __init__(self):
+        self.quality_checker = DataQualityChecker(baseline_stats)
+        self.backdoor_detector = BackdoorDetector()
+        self.source_validator = DataSourceValidator()
+    
+    def process_dataset(self, raw_data, metadata):
+        """处理数据集"""
+        # 1. 验证数据来源
+        self.source_validator.validate_data_source(raw_data, metadata)
+        
+        # 2. 质量检查
+        quality_issues = self.quality_checker.check_dataset(raw_data)
+        if quality_issues:
+            self.handle_quality_issues(quality_issues)
+        
+        # 3. 后门检测
+        suspicious_samples = self.backdoor_detector.scan_for_triggers(raw_data)
+        if suspicious_samples:
+            raw_data = self.remove_suspicious_samples(raw_data, suspicious_samples)
+        
+        # 4. 数据清洗
+        cleaned_data = self.clean_data(raw_data)
+        
+        return cleaned_data
+```
 
-#### 3.2.7 持续监控
-- 监控训练数据的变化和异常
-- 检测投毒攻击的模式和特征
-- 实现数据安全的持续监控和告警
+## 4. 触发场景
+
+- 训练数据更新
+- 训练源更新
+
+## 5. 防御策略
+
+### 5.1 预防措施
+- 使用可信数据源
+- 数据签名验证
+- 多源数据交叉验证
+
+### 5.2 检测措施
+- 统计异常检测
+- 后门触发器扫描
+- 基准测试对比
+
+### 5.3 缓解措施
+- 删除可疑样本
+- 数据增强和多样化
+- 模型重训练
+
+## 6. 检查清单
+
+- [ ] 是否实施数据质量检查
+- [ ] 是否检测统计异常
+- [ ] 是否扫描后门触发器
+- [ ] 是否验证数据来源和签名
+- [ ] 是否进行训练前后基准测试
+- [ ] 是否建立数据白名单
+- [ ] 是否记录数据处理审计日志
+- [ ] 是否定期审查训练数据
+
+## 7. 应急响应
+
+发现数据投毒时的应急措施：
+1. **立即停止训练**：暂停使用受污染数据
+2. **隔离数据**：隔离可疑数据集
+3. **溯源分析**：追踪污染来源
+4. **模型回滚**：回滚到干净版本
+5. **数据清洗**：清理受污染数据
+6. **重新训练**：使用干净数据重训练
+7. **加强监控**：增强数据源监控

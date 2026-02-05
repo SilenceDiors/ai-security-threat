@@ -1,71 +1,355 @@
 # 训练数据知识库数据范围控制缺失
 
+**威胁类别**：模型层 - 供应链安全缺陷  
+**风险等级**：P0（严重）
+
 ## 1. 漏洞原理
 
 ### 1.1 敏感数据未隔离
-对训练数据中包含的企业内部敏感数据未进行隔离，导致可以通过agent交互获取这些敏感信息。
+对训练数据中包含的企业内部敏感数据未进行隔离，导致可以通过agent交互获取。
 
-### 1.2 数据脱敏缺失
-训练数据未进行脱敏和匿名化处理，敏感信息直接包含在训练数据中。
+### 1.2 数据范围失控
+- 训练数据包含不应公开的内部文档
+- 敏感数据与普通数据混合
+- 缺少数据分类和分级
+- 未实施访问控制
 
-### 1.3 数据来源审计缺失
-系统未实现数据集来源审计和签名验证，无法追溯训练数据的来源和完整性。
-
-### 1.4 数据隔离缺失
-训练数据与企业内网未进行隔离，可能导致敏感数据泄露。
-
-### 1.5 数据范围控制缺失
-系统未实现训练数据知识库数据范围的控制机制，无法限制可访问的数据范围。
+### 1.3 泄露途径
+- 直接询问获取内部信息
+- 通过推理获取敏感数据
+- 模型记忆并复述敏感内容
+- 跨权限访问其他部门数据
 
 ## 2. 漏洞危害
 
-- **敏感信息泄露**：企业内部敏感数据可能通过agent交互泄露
-- **商业机密泄露**：训练数据中的商业机密可能被获取
-- **隐私侵犯**：个人隐私信息可能被泄露
-- **合规风险**：违反数据保护法规，可能导致法律风险
-- **安全风险**：敏感数据泄露可能导致安全事件
+- **商业机密泄露**：内部战略、财务数据等核心机密暴露
+- **隐私侵犯**：员工、客户个人信息泄露
+- **合规违规**：违反GDPR、个保法等法规
+- **竞争劣势**：核心技术和商业模式被窃取
+- **法律风险**：面临监管处罚和诉讼
+- **声誉损失**：数据泄露事件影响企业形象
 
 ## 3. 修复方式
 
 ### 3.1 开发原则
-- 数据脱敏和匿名化流程
-- 审查数据来源
-- 确保训练数据不包含敏感信息
-- 实现训练数据与企业内网的隔离
+- 数据脱敏和匿名化
+- 数据集来源审计和签名验证
+- 隔离训练数据与企业内网
+- 建立数据分类分级体系
 
 ### 3.2 修复建议
 
 #### 3.2.1 数据脱敏和匿名化
-- 对训练数据进行脱敏和匿名化处理
-- 识别和标记敏感信息字段
-- 实现敏感信息的替换、加密或删除
+数据脱敏和匿名化流程，审查数据来源，确保训练数据不包含敏感信息：
+
+```python
+class DataAnonymizer:
+    def __init__(self):
+        self.pii_patterns = {
+            "email": r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
+            "phone": r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b',
+            "id_card": r'\b\d{17}[\dXx]\b',  # 身份证号
+            "credit_card": r'\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b',
+            "ip_address": r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b',
+        }
+        
+        self.sensitive_keywords = [
+            "密码", "password", "秘钥", "secret", "token",
+            "工资", "salary", "薪资", "身份证", "银行账号"
+        ]
+    
+    def anonymize_text(self, text):
+        """文本脱敏"""
+        import re
+        
+        anonymized = text
+        replacements = []
+        
+        # 1. PII脱敏
+        for pii_type, pattern in self.pii_patterns.items():
+            matches = re.finditer(pattern, anonymized)
+            for match in matches:
+                original = match.group()
+                masked = self.mask_value(original, pii_type)
+                anonymized = anonymized.replace(original, masked)
+                replacements.append({
+                    "type": pii_type,
+                    "original": original,
+                    "masked": masked
+                })
+        
+        # 2. 敏感关键词检测
+        for keyword in self.sensitive_keywords:
+            if keyword in anonymized:
+                # 标记包含敏感词的文本
+                replacements.append({
+                    "type": "sensitive_keyword",
+                    "keyword": keyword,
+                    "action": "flagged"
+                })
+        
+        return anonymized, replacements
+    
+    def mask_value(self, value, pii_type):
+        """掩码处理"""
+        if pii_type == "email":
+            parts = value.split('@')
+            return f"{parts[0][0]}***@{parts[1]}"
+        elif pii_type == "phone":
+            return f"{value[:3]}****{value[-4:]}"
+        elif pii_type == "id_card":
+            return f"{value[:4]}**********{value[-4:]}"
+        elif pii_type == "credit_card":
+            return f"****-****-****-{value[-4:]}"
+        else:
+            return "***REDACTED***"
+    
+    def validate_training_data(self, data_samples):
+        """验证训练数据"""
+        issues = []
+        
+        for idx, sample in enumerate(data_samples):
+            anonymized, replacements = self.anonymize_text(sample)
+            
+            if replacements:
+                issues.append({
+                    "sample_id": idx,
+                    "original": sample,
+                    "issues": replacements
+                })
+        
+        return issues
+```
 
 #### 3.2.2 数据来源审计
-- 实现数据集来源审计和签名验证
-- 记录训练数据的来源和获取方式
-- 建立数据来源的可追溯机制
+```python
+class DataSourceAuditor:
+    def __init__(self):
+        self.approved_sources = set()
+        self.data_signatures = {}
+    
+    def audit_data_source(self, data_path, metadata):
+        """审计数据来源"""
+        # 1. 验证数据来源
+        source = metadata.get("source")
+        if source not in self.approved_sources:
+            raise SecurityError(f"未授权的数据来源: {source}")
+        
+        # 2. 验证数据签名
+        signature = self.calculate_signature(data_path)
+        expected_signature = self.data_signatures.get(data_path)
+        
+        if expected_signature and signature != expected_signature:
+            raise SecurityError(f"数据签名验证失败: {data_path}")
+        
+        # 3. 检查数据分类
+        classification = metadata.get("classification")
+        if classification in ["机密", "绝密"]:
+            raise SecurityError(f"不允许使用{classification}级别的数据")
+        
+        # 4. 审计日志
+        log_audit_event(
+            "data_source_audit",
+            data_path=data_path,
+            source=source,
+            classification=classification,
+            signature=signature
+        )
+        
+        return True
+    
+    def calculate_signature(self, data_path):
+        """计算数据签名"""
+        import hashlib
+        
+        with open(data_path, 'rb') as f:
+            return hashlib.sha256(f.read()).hexdigest()
+```
 
-#### 3.2.3 数据隔离
-- 隔离训练数据与企业内网
-- 实现网络隔离和访问控制
-- 建立数据访问的严格限制
+#### 3.2.3 数据分类分级
+```python
+class DataClassificationSystem:
+    LEVELS = {
+        "public": 0,        # 公开
+        "internal": 1,      # 内部
+        "confidential": 2,  # 机密
+        "secret": 3,        # 绝密
+    }
+    
+    def classify_data(self, data_sample):
+        """数据分类"""
+        # 1. 内容分析
+        contains_pii = self.contains_pii(data_sample)
+        contains_financial = self.contains_financial_data(data_sample)
+        contains_internal = self.contains_internal_keywords(data_sample)
+        
+        # 2. 分级决策
+        if contains_pii or contains_financial:
+            return "confidential"
+        elif contains_internal:
+            return "internal"
+        else:
+            return "public"
+    
+    def filter_by_level(self, data_samples, max_level="internal"):
+        """按级别过滤数据"""
+        max_level_value = self.LEVELS[max_level]
+        filtered = []
+        
+        for sample in data_samples:
+            level = self.classify_data(sample)
+            level_value = self.LEVELS[level]
+            
+            if level_value <= max_level_value:
+                filtered.append(sample)
+            else:
+                log_excluded_data(sample, level, "exceeds_max_level")
+        
+        return filtered
+    
+    def contains_pii(self, text):
+        """检测个人身份信息"""
+        pii_indicators = [
+            "身份证", "护照", "驾驶证", "手机号",
+            "邮箱", "地址", "银行账号"
+        ]
+        return any(indicator in text for indicator in pii_indicators)
+    
+    def contains_financial_data(self, text):
+        """检测财务数据"""
+        financial_indicators = [
+            "财务报表", "利润", "营收", "成本",
+            "预算", "工资", "薪酬"
+        ]
+        return any(indicator in text for indicator in financial_indicators)
+    
+    def contains_internal_keywords(self, text):
+        """检测内部关键词"""
+        internal_indicators = [
+            "内部文件", "仅限内部", "confidential",
+            "内部使用", "禁止外传"
+        ]
+        return any(indicator in text for indicator in internal_indicators)
+```
 
-#### 3.2.4 数据范围控制
-- 实现训练数据知识库数据范围的控制机制
-- 限制可访问的数据范围和类型
-- 建立数据访问权限管理
+#### 3.2.4 网络隔离
+隔离训练数据与企业内网：
 
-#### 3.2.5 敏感数据识别
-- 实现敏感数据的自动识别和分类
-- 建立敏感数据清单和分类标准
-- 实现敏感数据的标记和保护
+```python
+# 训练环境配置
+TRAINING_ENVIRONMENT = {
+    "network_isolation": True,
+    "allowed_sources": [
+        "public_datasets",
+        "approved_internal_repo"
+    ],
+    "forbidden_access": [
+        "production_database",
+        "internal_file_server",
+        "employee_data"
+    ],
+    "data_transfer": {
+        "require_approval": True,
+        "audit_logging": True,
+        "encryption": True
+    }
+}
 
-#### 3.2.6 数据验证
-- 在训练数据使用前进行验证
-- 检测训练数据中是否包含敏感信息
-- 建立数据验证的自动化流程
+def validate_data_access(data_source):
+    """验证数据访问"""
+    if data_source in TRAINING_ENVIRONMENT["forbidden_access"]:
+        raise AccessDenied(f"禁止访问: {data_source}")
+    
+    if data_source not in TRAINING_ENVIRONMENT["allowed_sources"]:
+        if not get_approval(data_source):
+            raise AccessDenied("未获得访问批准")
+    
+    log_data_access(data_source)
+```
 
-#### 3.2.7 持续监控
-- 监控训练数据的使用和访问
-- 检测异常的数据访问模式
-- 实现数据访问的审计和告警
+#### 3.2.5 访问控制
+```python
+class TrainingDataAccessControl:
+    def __init__(self):
+        self.access_matrix = {
+            "public": ["all"],
+            "internal": ["employee", "contractor"],
+            "confidential": ["manager", "security_team"],
+            "secret": ["c_level", "security_officer"],
+        }
+    
+    def check_access(self, user_role, data_classification):
+        """检查访问权限"""
+        allowed_roles = self.access_matrix.get(data_classification, [])
+        
+        if "all" in allowed_roles or user_role in allowed_roles:
+            return True
+        
+        log_access_denied(user_role, data_classification)
+        return False
+    
+    def prepare_training_data(self, raw_data, user_role):
+        """准备训练数据（基于权限过滤）"""
+        classifier = DataClassificationSystem()
+        filtered_data = []
+        
+        for sample in raw_data:
+            classification = classifier.classify_data(sample)
+            
+            if self.check_access(user_role, classification):
+                filtered_data.append(sample)
+            else:
+                log_excluded_data(sample, classification, "insufficient_permission")
+        
+        return filtered_data
+```
+
+## 4. 触发场景
+
+- 训练数据更新
+- 训练源更新
+
+## 5. 数据治理流程
+
+### 5.1 数据收集阶段
+1. 明确数据来源和用途
+2. 评估数据敏感度
+3. 获取必要授权
+
+### 5.2 数据处理阶段
+1. 数据分类分级
+2. 敏感数据脱敏
+3. 数据签名和审计
+
+### 5.3 数据使用阶段
+1. 权限验证
+2. 访问日志记录
+3. 定期审查
+
+## 6. 检查清单
+
+- [ ] 是否实施数据脱敏和匿名化
+- [ ] 是否建立数据分类分级体系
+- [ ] 是否审计数据来源
+- [ ] 是否验证数据签名
+- [ ] 是否隔离训练环境与生产环境
+- [ ] 是否实施访问控制
+- [ ] 是否记录数据访问审计日志
+- [ ] 是否定期审查训练数据合规性
+
+## 7. 合规要求
+
+### 7.1 GDPR
+- 数据最小化原则
+- 目的限制原则
+- 数据主体权利保护
+
+### 7.2 个人信息保护法
+- 个人信息处理合法性
+- 敏感个人信息保护
+- 数据出境安全评估
+
+### 7.3 企业数据治理
+- 数据分类分级标准
+- 数据访问控制策略
+- 数据生命周期管理

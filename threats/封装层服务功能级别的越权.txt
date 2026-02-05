@@ -1,72 +1,354 @@
 # 封装层服务功能级别的越权
 
+**威胁类别**：智能体层 - 失效的权限控制  
+**风险等级**：P1（高危）
+
 ## 1. 漏洞原理
 
-### 1.1 功能权限控制缺失
+### 1.1 功能级越权
 在封装层workflow及用户前端中，用户低权限（如viewer）可调用高权限功能（如admin工具删除模型缓存或修改代理配置），影响AI决策链。
 
-### 1.2 RBAC缺失
-系统未实现细粒度RBAC（基于角色的访问控制），无法区分不同角色的权限。
-
-### 1.3 权限检查缺失
-每API未检查用户角色和所需权限，所有用户可能访问所有功能。
-
-### 1.4 审批流程缺失
-高敏感功能未增加审批流程，低权限用户可能直接执行高权限操作。
-
-### 1.5 权限变更审计缺失
-权限变更未实现审计，无法追溯权限变更历史。
+### 1.2 常见问题
+- 未实施功能级权限检查
+- 前端隐藏功能但后端未限制
+- 权限检查不完整
+- RBAC实施不当
 
 ## 2. 漏洞危害
 
-- **权限提升**：低权限用户可能获得高权限功能
-- **数据泄露**：可能访问不应访问的数据
-- **系统破坏**：可能删除模型缓存或修改代理配置
-- **AI决策链影响**：可能影响AI决策链的正常运行
-- **合规风险**：违反权限管理合规要求
+- **权限提升**：低权限用户执行高权限操作
+- **数据篡改**：修改系统配置或删除数据
+- **业务破坏**：影响AI决策链和工作流
+- **安全绕过**：绕过业务安全控制
+- **审计失效**：操作无法正确归责
 
 ## 3. 修复方式
 
 ### 3.1 开发原则
-- 实现细粒度RBAC
-- 每API检查用户角色和所需权限
+- 实现细粒度RBAC（基于角色的访问控制）
+- 每个API检查用户角色和所需权限
 - 高敏感功能增加审批流程
 - 权限变更审计
-- 实现功能级权限控制
 
 ### 3.2 修复建议
 
-#### 3.2.1 细粒度RBAC
-- 实现细粒度RBAC（基于角色的访问控制）
-- 定义不同角色的权限范围
-- 建立角色和权限的映射关系
+#### 3.2.1 RBAC实现
+实现功能级权限控制，验证用户角色：
 
-#### 3.2.2 权限检查
-- 每API检查用户角色和所需权限
-- 实现权限验证的中间件
-- 建立权限检查的标准化流程
+```python
+from enum import Enum
+from functools import wraps
+from flask import request, jsonify
+
+class Role(Enum):
+    VIEWER = "viewer"
+    EDITOR = "editor"
+    ADMIN = "admin"
+    SUPER_ADMIN = "super_admin"
+
+class Permission(Enum):
+    VIEW_SESSION = "view_session"
+    CREATE_SESSION = "create_session"
+    DELETE_SESSION = "delete_session"
+    MODIFY_CONFIG = "modify_config"
+    DELETE_CACHE = "delete_cache"
+    MANAGE_USERS = "manage_users"
+
+# 角色权限映射
+ROLE_PERMISSIONS = {
+    Role.VIEWER: [
+        Permission.VIEW_SESSION,
+    ],
+    Role.EDITOR: [
+        Permission.VIEW_SESSION,
+        Permission.CREATE_SESSION,
+    ],
+    Role.ADMIN: [
+        Permission.VIEW_SESSION,
+        Permission.CREATE_SESSION,
+        Permission.DELETE_SESSION,
+        Permission.MODIFY_CONFIG,
+        Permission.DELETE_CACHE,
+    ],
+    Role.SUPER_ADMIN: list(Permission),  # 所有权限
+}
+
+def has_permission(user_role, required_permission):
+    """检查用户是否有特定权限"""
+    role = Role(user_role)
+    allowed_permissions = ROLE_PERMISSIONS.get(role, [])
+    return required_permission in allowed_permissions
+
+def require_permission(permission):
+    """权限检查装饰器"""
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(current_user, *args, **kwargs):
+            # 检查权限
+            if not has_permission(current_user.role, permission):
+                log_unauthorized_attempt(
+                    user_id=current_user.id,
+                    role=current_user.role,
+                    required_permission=permission.value,
+                    endpoint=request.endpoint
+                )
+                return jsonify({
+                    'message': 'Insufficient permissions'
+                }), 403
+            
+            # 记录权限使用
+            log_permission_usage(
+                user_id=current_user.id,
+                permission=permission.value,
+                endpoint=request.endpoint
+            )
+            
+            return f(current_user, *args, **kwargs)
+        return decorated_function
+    return decorator
+
+# 应用到API
+@app.route('/api/admin/cache/delete', methods=['DELETE'])
+@token_required
+@require_permission(Permission.DELETE_CACHE)
+def delete_cache(current_user):
+    """删除模型缓存 - 需要admin权限"""
+    cache.clear()
+    return jsonify({'message': 'Cache deleted successfully'})
+
+@app.route('/api/config/update', methods=['PUT'])
+@token_required
+@require_permission(Permission.MODIFY_CONFIG)
+def update_config(current_user):
+    """修改配置 - 需要admin权限"""
+    new_config = request.get_json()
+    update_system_config(new_config)
+    return jsonify({'message': 'Config updated successfully'})
+```
+
+#### 3.2.2 细粒度权限控制
+建立细粒度权限管理：
+
+```python
+class PermissionChecker:
+    def __init__(self):
+        self.permissions = self.load_permissions()
+    
+    def check_function_permission(self, user, function_name, resource_id=None):
+        """检查功能级权限"""
+        # 1. 检查基本角色权限
+        if not self.has_role_permission(user.role, function_name):
+            return False, "role_permission_denied"
+        
+        # 2. 检查资源级权限（如果有资源ID）
+        if resource_id:
+            if not self.has_resource_permission(user.id, resource_id):
+                return False, "resource_permission_denied"
+        
+        # 3. 检查时间限制（某些功能仅在特定时间可用）
+        if not self.check_time_restriction(function_name):
+            return False, "time_restriction"
+        
+        # 4. 检查使用配额
+        if not self.check_quota(user.id, function_name):
+            return False, "quota_exceeded"
+        
+        return True, None
+    
+    def has_role_permission(self, role, function_name):
+        """检查角色是否有功能权限"""
+        function_permissions = self.permissions.get(function_name, {})
+        required_role = function_permissions.get('min_role', Role.ADMIN)
+        
+        role_hierarchy = {
+            Role.VIEWER: 1,
+            Role.EDITOR: 2,
+            Role.ADMIN: 3,
+            Role.SUPER_ADMIN: 4,
+        }
+        
+        return role_hierarchy.get(role, 0) >= role_hierarchy.get(required_role, 99)
+```
 
 #### 3.2.3 审批流程
-- 高敏感功能增加审批流程
-- 实现人工审核和批准机制
-- 建立审批流程的管理系统
+高敏感功能增加审批流程：
 
-#### 3.2.4 权限变更审计
-- 权限变更审计
-- 记录权限变更的详细信息
-- 实现权限变更的追溯功能
+```python
+class ApprovalWorkflow:
+    def __init__(self):
+        self.pending_approvals = {}
+    
+    def request_approval(self, user_id, action, params):
+        """请求审批"""
+        approval_id = str(uuid.uuid4())
+        
+        approval_request = {
+            'id': approval_id,
+            'user_id': user_id,
+            'action': action,
+            'params': params,
+            'status': 'pending',
+            'created_at': datetime.now(),
+            'expires_at': datetime.now() + timedelta(hours=24),
+        }
+        
+        self.pending_approvals[approval_id] = approval_request
+        
+        # 通知审批人
+        notify_approvers(approval_request)
+        
+        return approval_id
+    
+    def check_approval_status(self, approval_id):
+        """检查审批状态"""
+        approval = self.pending_approvals.get(approval_id)
+        
+        if not approval:
+            return 'not_found'
+        
+        if approval['expires_at'] < datetime.now():
+            return 'expired'
+        
+        return approval['status']
+    
+    def approve_request(self, approval_id, approver_id):
+        """批准请求"""
+        approval = self.pending_approvals.get(approval_id)
+        
+        if not approval:
+            raise ValueError("Approval not found")
+        
+        # 检查审批人权限
+        approver = get_user(approver_id)
+        if approver.role not in [Role.ADMIN, Role.SUPER_ADMIN]:
+            raise PermissionError("Insufficient permissions to approve")
+        
+        approval['status'] = 'approved'
+        approval['approved_by'] = approver_id
+        approval['approved_at'] = datetime.now()
+        
+        # 记录审批日志
+        log_approval(approval)
+        
+        return True
 
-#### 3.2.5 功能级权限控制
-- 实现功能级权限控制
-- 验证用户角色
-- 建立细粒度权限管理
+# 需要审批的操作
+@app.route('/api/admin/cache/delete', methods=['DELETE'])
+@token_required
+@require_permission(Permission.DELETE_CACHE)
+def delete_cache(current_user):
+    """删除模型缓存 - 需要审批"""
+    # 1. 创建审批请求
+    approval_workflow = ApprovalWorkflow()
+    approval_id = approval_workflow.request_approval(
+        user_id=current_user.id,
+        action='delete_cache',
+        params={}
+    )
+    
+    return jsonify({
+        'message': 'Approval requested',
+        'approval_id': approval_id,
+        'status': 'pending'
+    }), 202
 
-#### 3.2.6 最小权限原则
-- 实施最小权限原则
-- 用户只能访问必要的功能
-- 建立权限的最小化配置
+@app.route('/api/admin/execute/<approval_id>', methods=['POST'])
+@token_required
+def execute_approved_action(current_user, approval_id):
+    """执行已批准的操作"""
+    approval_workflow = ApprovalWorkflow()
+    
+    # 检查审批状态
+    status = approval_workflow.check_approval_status(approval_id)
+    
+    if status != 'approved':
+        return jsonify({'message': f'Approval status: {status}'}), 403
+    
+    # 执行操作
+    approval = approval_workflow.pending_approvals[approval_id]
+    execute_action(approval['action'], approval['params'])
+    
+    return jsonify({'message': 'Action executed successfully'})
+```
 
-#### 3.2.7 持续监控
-- 监控权限使用情况
-- 检测异常的权限使用模式
-- 实现权限安全的审计功能
+#### 3.2.4 权限审计
+权限变更审计：
+
+```python
+class PermissionAuditor:
+    def log_permission_change(self, admin_id, user_id, old_role, new_role):
+        """记录权限变更"""
+        audit_log = {
+            'timestamp': datetime.now(),
+            'admin_id': admin_id,
+            'user_id': user_id,
+            'old_role': old_role,
+            'new_role': new_role,
+            'ip_address': request.remote_addr,
+        }
+        
+        db.insert(PermissionAuditLog, audit_log)
+        
+        # 通知相关人员
+        notify_permission_change(audit_log)
+    
+    def log_unauthorized_attempt(self, user_id, role, required_permission, endpoint):
+        """记录未授权尝试"""
+        log = {
+            'timestamp': datetime.now(),
+            'user_id': user_id,
+            'user_role': role,
+            'required_permission': required_permission,
+            'endpoint': endpoint,
+            'ip_address': request.remote_addr,
+        }
+        
+        db.insert(UnauthorizedAttemptLog, log)
+        
+        # 如果短时间内多次尝试，发送告警
+        recent_attempts = self.count_recent_attempts(user_id, minutes=10)
+        if recent_attempts > 5:
+            send_security_alert("Multiple unauthorized attempts", log)
+```
+
+## 4. 触发场景
+
+- 功能权限变更
+
+## 5. 功能权限矩阵示例
+
+| 功能 | Viewer | Editor | Admin | Super Admin |
+|------|--------|--------|-------|-------------|
+| 查看会话 | ✓ | ✓ | ✓ | ✓ |
+| 创建会话 | ✗ | ✓ | ✓ | ✓ |
+| 删除会话 | ✗ | ✗ | ✓ | ✓ |
+| 修改配置 | ✗ | ✗ | ✓ | ✓ |
+| 删除缓存 | ✗ | ✗ | ✓ | ✓ |
+| 用户管理 | ✗ | ✗ | ✗ | ✓ |
+
+## 6. 检查清单
+
+- [ ] 是否实现RBAC
+- [ ] 每个API是否检查权限
+- [ ] 前端隐藏的功能后端是否也限制
+- [ ] 高敏感操作是否需要审批
+- [ ] 是否记录权限变更审计日志
+- [ ] 是否监控未授权尝试
+- [ ] 是否定期审查权限配置
+- [ ] 是否有权限测试覆盖
+
+## 7. 测试方法
+
+```python
+def test_function_level_authorization():
+    """测试功能级权限"""
+    # Viewer尝试删除缓存
+    viewer_token = login("viewer_user")
+    response = delete_cache(viewer_token)
+    assert response.status_code == 403
+    
+    # Admin可以删除缓存
+    admin_token = login("admin_user")
+    response = delete_cache(admin_token)
+    assert response.status_code == 200
+```

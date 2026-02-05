@@ -1,72 +1,248 @@
 # 模型交互资源耗尽
 
+**威胁类别**：模型层 - 模型拒绝服务  
+**风险等级**：P2（中危）
+
 ## 1. 漏洞原理
 
 ### 1.1 Token配额控制缺失
-系统未按用户维度设置每日token配额，导致用户可能无限制使用token，造成资源耗尽。
+大量复杂请求导致模型服务资源耗尽，缺少用户维度的token配额管理。
 
-### 1.2 资源监控缺失
-系统未实时监控token消耗和API调用量，无法及时发现异常流量和资源消耗。
+### 1.2 资源耗尽方式
+- 发送超长prompt消耗大量token
+- 高频调用API耗尽配额
+- 恶意用户故意耗尽资源
+- 未授权用户调用大模型
 
-### 1.3 配额耗尽处理缺失
-当用户token配额耗尽时，系统未拒绝请求并通知用户，导致继续消耗资源或用户体验差。
-
-### 1.4 未授权调用
-未实现防止未授权用户调用大模型的机制，导致资源被恶意消耗。
-
-### 1.5 成本分析缺失
-系统未实现成本分析和异常流量告警，无法及时发现资源滥用和成本异常。
+### 1.3 成本风险
+- 云服务费用激增
+- 正常用户无法使用
+- 业务受影响
 
 ## 2. 漏洞危害
 
-- **资源耗尽**：大量复杂请求导致模型服务资源耗尽，无法正常提供服务
-- **成本失控**：无限制的token使用导致成本急剧增加
-- **服务不稳定**：资源耗尽可能导致服务响应变慢或崩溃
-- **正常用户受影响**：恶意用户占用资源，导致正常用户无法使用服务
-- **安全风险**：未授权用户可能通过大量请求进行DoS攻击
+- **成本失控**：模型调用费用暴涨
+- **服务拒绝**：配额耗尽导致服务不可用
+- **资源浪费**：恶意请求浪费计算资源
+- **业务中断**：正常业务无法进行
+- **用户体验差**：响应缓慢或失败
 
 ## 3. 修复方式
 
 ### 3.1 开发原则
-- 必须设置每日token使用上限
-- 实现资源监控和告警
-- 建立资源使用统计
-- 实现配额管理和控制
+- 按用户维度设置token配额
+- 实时监控资源消耗
 - 防止未授权调用
+- 实施成本告警机制
 
 ### 3.2 修复建议
 
-#### 3.2.1 Token配额设置
-- 按用户维度设置每日token配额
-- 实现配额的分层管理（免费用户、付费用户、VIP用户）
-- 支持配额的动态调整和重置
+#### 3.2.1 用户配额管理
+按用户维度设置每日token配额：
 
-#### 3.2.2 实时监控
-- 实时监控token消耗和API调用量
-- 实现资源使用情况的实时统计和展示
-- 设置资源使用告警阈值
+```python
+from datetime import datetime, timedelta
+import redis
 
-#### 3.2.3 配额耗尽处理
-- 配额耗尽时拒绝请求并返回明确的错误信息
-- 通知用户配额已耗尽，提供充值或升级选项
-- 实现配额使用情况的实时查询接口
+class TokenQuotaManager:
+    def __init__(self, redis_client):
+        self.redis = redis_client
+    
+    def check_quota(self, user_id, tokens_requested):
+        """检查用户配额"""
+        key = f"quota:{user_id}:{datetime.now().strftime('%Y-%m-%d')}"
+        
+        # 获取用户配额设置
+        user_quota = self.get_user_quota(user_id)  # 如：10000 tokens/day
+        
+        # 获取今日已用
+        used_tokens = int(self.redis.get(key) or 0)
+        
+        # 检查是否超额
+        if used_tokens + tokens_requested > user_quota:
+            return False, f"Quota exceeded: {used_tokens}/{user_quota}"
+        
+        return True, user_quota - used_tokens
+    
+    def consume_quota(self, user_id, tokens_used):
+        """消耗配额"""
+        key = f"quota:{user_id}:{datetime.now().strftime('%Y-%m-%d')}"
+        
+        # 增加使用量
+        self.redis.incrby(key, tokens_used)
+        
+        # 设置过期时间（2天后过期）
+        self.redis.expire(key, 172800)
+        
+        # 记录使用日志
+        self.log_usage(user_id, tokens_used)
+```
 
-#### 3.2.4 成本分析
-- 实现成本分析和统计功能
-- 识别异常流量和资源消耗模式
-- 建立成本告警机制
+#### 3.2.2 实时监控和告警
+实时监控token消耗和API调用量：
 
-#### 3.2.5 未授权防护
-- 实现身份认证和授权机制
-- 防止未授权的用户调用大模型
-- 实现API密钥管理和验证
+```python
+class UsageMonitor:
+    def monitor_usage(self, user_id, tokens_used):
+        """监控使用情况"""
+        # 1. 记录到时序数据库
+        self.log_to_metrics(user_id, tokens_used, timestamp=datetime.now())
+        
+        # 2. 检查异常流量
+        if self.detect_anomaly(user_id, tokens_used):
+            self.alert_ops("Anomaly detected", user_id, tokens_used)
+        
+        # 3. 成本分析
+        cost = self.calculate_cost(tokens_used)
+        if cost > COST_THRESHOLD:
+            self.alert_finance("High cost warning", user_id, cost)
+    
+    def detect_anomaly(self, user_id, tokens_used):
+        """异常流量检测"""
+        # 获取用户历史平均使用量
+        avg_usage = self.get_average_usage(user_id)
+        
+        # 超过平均值3倍视为异常
+        return tokens_used > avg_usage * 3
+```
 
-#### 3.2.6 资源使用统计
-- 建立资源使用统计数据库
-- 实现资源使用的历史记录和趋势分析
-- 提供资源使用报告和审计功能
+#### 3.2.3 配额策略
+配额耗尽时拒绝请求并通知用户：
 
-#### 3.2.7 异常检测
-- 实现异常流量检测算法
-- 识别资源滥用模式
-- 自动封禁异常用户
+```python
+def handle_request(user_id, prompt):
+    """处理用户请求"""
+    # 1. 估算token数量
+    estimated_tokens = estimate_tokens(prompt)
+    
+    # 2. 检查配额
+    quota_manager = TokenQuotaManager(redis_client)
+    allowed, remaining = quota_manager.check_quota(user_id, estimated_tokens)
+    
+    if not allowed:
+        # 拒绝请求并通知用户
+        return {
+            "error": "Quota exceeded",
+            "message": "Your daily token quota has been exhausted",
+            "remaining": 0,
+            "reset_time": "tomorrow 00:00:00"
+        }
+    
+    # 3. 调用模型
+    response = call_model_api(prompt)
+    actual_tokens = response.usage.total_tokens
+    
+    # 4. 消耗配额
+    quota_manager.consume_quota(user_id, actual_tokens)
+    
+    # 5. 返回结果（包含配额信息）
+    return {
+        "data": response.text,
+        "usage": {
+            "tokens_used": actual_tokens,
+            "remaining_quota": remaining - actual_tokens
+        }
+    }
+```
+
+#### 3.2.4 身份认证
+防止未授权的用户调用大模型：
+
+```python
+def authenticate_request(request):
+    """身份认证中间件"""
+    # 1. 验证API Key
+    api_key = request.headers.get("Authorization")
+    if not api_key:
+        raise Unauthorized("Missing API key")
+    
+    # 2. 验证用户身份
+    user = validate_api_key(api_key)
+    if not user:
+        raise Unauthorized("Invalid API key")
+    
+    # 3. 检查用户状态
+    if not user.is_active:
+        raise Forbidden("Account disabled")
+    
+    # 4. 检查权限
+    if not user.has_permission("model_api"):
+        raise Forbidden("Insufficient permissions")
+    
+    return user
+```
+
+#### 3.2.5 成本分析和告警
+```python
+class CostAnalyzer:
+    PRICING = {
+        "gpt-4": {"input": 0.03, "output": 0.06},  # USD per 1K tokens
+        "gpt-3.5": {"input": 0.001, "output": 0.002},
+    }
+    
+    def calculate_cost(self, model, input_tokens, output_tokens):
+        """计算成本"""
+        pricing = self.PRICING.get(model, {})
+        input_cost = input_tokens / 1000 * pricing.get("input", 0)
+        output_cost = output_tokens / 1000 * pricing.get("output", 0)
+        return input_cost + output_cost
+    
+    def alert_if_high_cost(self, user_id, daily_cost):
+        """高成本告警"""
+        thresholds = {
+            "warning": 100,   # $100/day
+            "critical": 500,  # $500/day
+        }
+        
+        if daily_cost > thresholds["critical"]:
+            send_alert("CRITICAL", f"User {user_id} cost: ${daily_cost}")
+        elif daily_cost > thresholds["warning"]:
+            send_alert("WARNING", f"User {user_id} cost: ${daily_cost}")
+```
+
+## 4. 触发场景
+
+- Token使用上限
+- 高并发场景
+- 模型迁移
+
+## 5. 配额策略建议
+
+### 5.1 用户分级配额
+```python
+USER_QUOTAS = {
+    "free": 1000,      # 免费用户：1K tokens/day
+    "basic": 10000,    # 基础用户：10K tokens/day
+    "pro": 100000,     # 专业用户：100K tokens/day
+    "enterprise": -1,  # 企业用户：无限制
+}
+```
+
+### 5.2 动态配额调整
+- 根据用户历史使用情况调整
+- 高峰时段降低配额
+- 闲时提高配额
+
+### 5.3 超额处理策略
+- **硬限制**：超额直接拒绝
+- **软限制**：超额降低优先级
+- **付费超额**：允许按需付费
+
+## 6. 监控指标
+
+- **每日token消耗**：按用户/全局统计
+- **API调用次数**：QPS、成功率
+- **成本统计**：每日/每月成本
+- **配额使用率**：各用户配额使用情况
+- **异常检测**：突发流量、异常用户
+
+## 7. 检查清单
+
+- [ ] 是否设置用户token配额
+- [ ] 是否实时监控token消耗
+- [ ] 是否实现配额耗尽拒绝
+- [ ] 是否防止未授权调用
+- [ ] 是否实施成本告警
+- [ ] 是否记录使用审计日志
+- [ ] 是否支持配额重置
+- [ ] 是否有异常流量检测

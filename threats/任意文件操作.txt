@@ -1,0 +1,295 @@
+# 任意文件操作
+
+**威胁类别**：智能体层 - 文件交互风险  
+**风险等级**：P1（高危）
+
+## 1. 漏洞原理
+
+### 1.1 文件操作漏洞
+封装层系统中存在任意敏感文件下载、删除或上传漏洞，可能导致系统文件泄露或被篡改。
+
+### 1.2 攻击类型
+- **任意文件下载**：下载系统敏感文件
+- **任意文件删除**：删除重要文件导致系统故障
+- **任意文件上传**：上传恶意文件（如webshell）
+
+## 2. 漏洞危害
+
+- **数据泄露**：下载配置文件、密钥文件、数据库文件
+- **系统破坏**：删除关键文件导致系统崩溃
+- **远程控制**：上传webshell获取服务器控制权
+- **权限提升**：修改配置文件获取更高权限
+
+## 3. 修复方式
+
+### 3.1 开发原则
+- 下载前校验用户权限和文件归属
+- 路径规范化防止遍历
+- 下载链接token化临时有效
+- 文件下载审计日志
+
+### 3.2 修复建议
+
+#### 3.2.1 文件下载安全
+实现文件权限验证，限制下载路径：
+
+```python
+import os
+from flask import send_file, abort
+from werkzeug.utils import secure_filename
+
+class SecureFileDownloader:
+    def __init__(self, base_dir):
+        self.base_dir = os.path.abspath(base_dir)
+    
+    def download_file(self, user_id, file_path):
+        """安全的文件下载"""
+        # 1. 路径规范化
+        normalized_path = self.normalize_path(file_path)
+        
+        # 2. 验证路径在允许目录内
+        if not self.is_path_safe(normalized_path):
+            raise SecurityError("Path traversal detected")
+        
+        # 3. 检查文件是否存在
+        if not os.path.exists(normalized_path):
+            abort(404)
+        
+        # 4. 验证文件归属和权限
+        if not self.check_file_permission(user_id, normalized_path):
+            abort(403)
+        
+        # 5. 记录审计日志
+        log_file_download(user_id, normalized_path)
+        
+        # 6. 返回文件
+        return send_file(normalized_path, as_attachment=True)
+    
+    def normalize_path(self, file_path):
+        """路径规范化"""
+        # 移除危险字符
+        safe_path = secure_filename(file_path)
+        
+        # 构造完整路径
+        full_path = os.path.join(self.base_dir, safe_path)
+        
+        # 规范化路径（解析..等）
+        normalized = os.path.abspath(full_path)
+        
+        return normalized
+    
+    def is_path_safe(self, path):
+        """检查路径是否安全"""
+        # 确保路径在基础目录内
+        return path.startswith(self.base_dir)
+    
+    def check_file_permission(self, user_id, file_path):
+        """检查文件权限"""
+        # 查询文件所有者
+        file_record = db.query(File).filter_by(path=file_path).first()
+        
+        if not file_record:
+            return False
+        
+        # 检查用户是否有权限
+        return file_record.owner_id == user_id or is_admin(user_id)
+```
+
+#### 3.2.2 临时下载链接
+下载链接token化临时有效：
+
+```python
+import secrets
+from datetime import datetime, timedelta
+
+class TemporaryDownloadLink:
+    def __init__(self):
+        self.links = {}  # 实际应使用Redis
+    
+    def generate_link(self, user_id, file_path, expires_in=3600):
+        """生成临时下载链接"""
+        # 1. 生成随机token
+        token = secrets.token_urlsafe(32)
+        
+        # 2. 存储链接信息
+        self.links[token] = {
+            'user_id': user_id,
+            'file_path': file_path,
+            'expires_at': datetime.now() + timedelta(seconds=expires_in),
+            'used': False
+        }
+        
+        # 3. 返回下载URL
+        return f"/api/download/{token}"
+    
+    def validate_and_consume(self, token):
+        """验证并消费下载链接"""
+        link_info = self.links.get(token)
+        
+        if not link_info:
+            raise ValueError("Invalid download link")
+        
+        # 检查是否过期
+        if link_info['expires_at'] < datetime.now():
+            del self.links[token]
+            raise ValueError("Download link expired")
+        
+        # 检查是否已使用
+        if link_info['used']:
+            raise ValueError("Download link already used")
+        
+        # 标记为已使用
+        link_info['used'] = True
+        
+        return link_info
+
+@app.route('/api/files/<file_id>/download', methods=['GET'])
+@token_required
+def request_download(current_user, file_id):
+    """请求文件下载"""
+    file = db.query(File).get(file_id)
+    
+    if not file or file.owner_id != current_user.id:
+        abort(404)
+    
+    # 生成临时下载链接
+    temp_link = TemporaryDownloadLink()
+    download_url = temp_link.generate_link(current_user.id, file.path)
+    
+    return jsonify({'download_url': download_url, 'expires_in': 3600})
+
+@app.route('/api/download/<token>', methods=['GET'])
+def download_file(token):
+    """通过临时链接下载文件"""
+    temp_link = TemporaryDownloadLink()
+    
+    try:
+        link_info = temp_link.validate_and_consume(token)
+    except ValueError as e:
+        abort(403, str(e))
+    
+    # 下载文件
+    return send_file(link_info['file_path'], as_attachment=True)
+```
+
+#### 3.2.3 文件上传安全
+```python
+ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif'}
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+
+def allowed_file(filename):
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+@app.route('/api/files/upload', methods=['POST'])
+@token_required
+def upload_file(current_user):
+    """安全的文件上传"""
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    
+    file = request.files['file']
+    
+    # 1. 检查文件名
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+    
+    # 2. 检查文件类型
+    if not allowed_file(file.filename):
+        return jsonify({'error': 'File type not allowed'}), 400
+    
+    # 3. 检查文件大小
+    file.seek(0, os.SEEK_END)
+    file_size = file.tell()
+    file.seek(0)
+    
+    if file_size > MAX_FILE_SIZE:
+        return jsonify({'error': 'File too large'}), 400
+    
+    # 4. 安全的文件名
+    filename = secure_filename(file.filename)
+    
+    # 5. 生成唯一文件名
+    unique_filename = f"{uuid.uuid4()}_{filename}"
+    
+    # 6. 保存到安全目录
+    upload_dir = os.path.join(app.config['UPLOAD_FOLDER'], str(current_user.id))
+    os.makedirs(upload_dir, exist_ok=True)
+    
+    file_path = os.path.join(upload_dir, unique_filename)
+    file.save(file_path)
+    
+    # 7. 病毒扫描（可选）
+    if not virus_scan(file_path):
+        os.remove(file_path)
+        return jsonify({'error': 'Malicious file detected'}), 400
+    
+    # 8. 记录到数据库
+    file_record = File(
+        id=str(uuid.uuid4()),
+        owner_id=current_user.id,
+        filename=filename,
+        path=file_path,
+        size=file_size
+    )
+    db.add(file_record)
+    db.commit()
+    
+    return jsonify({'file_id': file_record.id, 'filename': filename})
+```
+
+#### 3.2.4 文件删除安全
+```python
+@app.route('/api/files/<file_id>', methods=['DELETE'])
+@token_required
+def delete_file(current_user, file_id):
+    """安全的文件删除"""
+    file = db.query(File).get(file_id)
+    
+    if not file:
+        abort(404)
+    
+    # 1. 验证所有权
+    if file.owner_id != current_user.id and not is_admin(current_user):
+        abort(403)
+    
+    # 2. 验证路径安全
+    if not os.path.abspath(file.path).startswith(app.config['UPLOAD_FOLDER']):
+        log_security_event("Attempt to delete file outside upload folder", 
+                          user_id=current_user.id, file_path=file.path)
+        abort(403)
+    
+    # 3. 删除物理文件
+    try:
+        if os.path.exists(file.path):
+            os.remove(file.path)
+    except Exception as e:
+        log_error("File deletion failed", error=str(e))
+        return jsonify({'error': 'File deletion failed'}), 500
+    
+    # 4. 删除数据库记录
+    db.delete(file)
+    db.commit()
+    
+    # 5. 记录审计日志
+    log_file_deletion(current_user.id, file_id, file.path)
+    
+    return jsonify({'message': 'File deleted successfully'})
+```
+
+## 4. 触发场景
+
+- 文件下载功能新增/更新
+- 文件上传功能新增/更新
+- 文件删除功能新增/更新
+
+## 5. 检查清单
+
+- [ ] 是否验证文件路径安全
+- [ ] 是否检查用户权限
+- [ ] 是否使用临时下载链接
+- [ ] 是否限制文件类型和大小
+- [ ] 是否使用secure_filename处理文件名
+- [ ] 是否实施病毒扫描
+- [ ] 是否记录文件操作审计日志
+- [ ] 是否限制上传目录权限
